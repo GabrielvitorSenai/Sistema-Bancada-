@@ -121,9 +121,20 @@ public class SmartController {
         String ipClp = pedidoDTO.getIpClp();
         List<BlocoDTO> pedido = pedidoDTO.getBlocos();
 
+        // === Posição de guardar na expedição (1..12). Se vier 0/invalido, usa a 1ª livre ===
+        int posExpedicao = pedidoDTO.getPosicaoExpedicao();
+        if (posExpedicao < 1 || posExpedicao > 12) {
+            posExpedicao = smartService.buscarPrimeiraPosicaoLivreExp();
+        }
+        if (posExpedicao == -1) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body("Erro: não há posição livre na expedição para guardar o pedido.");
+        }
+
         System.out.println("Iniciando pedido ID: " + idPedido);
         System.out.println("Pedido recebido para IP do CLP: " + ipClp);
         System.out.println("Pedido tipo: " + tipo);
+        System.out.println("Posição de expedição (guardar): " + posExpedicao);
         System.out.println("Cor da tampa: " + (tampa == 1 ? "Preto" : tampa == 2 ? "Vermelho" : "Azul"));
 
         for (BlocoDTO bloco : pedido) {
@@ -136,7 +147,7 @@ public class SmartController {
         }
 
         try {
-            byte[] bytePedidoArray = montarPedidoParaCLP(pedido, idPedido);
+            byte[] bytePedidoArray = montarPedidoParaCLP(pedido, idPedido, posExpedicao);
 
             System.out.print("Bytes do pedido em hexadecimal: ");
             for (byte b : bytePedidoArray) {
@@ -156,8 +167,9 @@ public class SmartController {
                 RestTemplate apiSeletorTampa = new RestTemplate();
                 String url = "http://10.74.241.245/api/move_pos?pos=" + tampa;
 
+                // O seletor de tampas SÓ aceita POST nesta rota (GET cai no "Not found" 404).
                 // Lê resposta como Map para interpretar o JSON {"status": "..."}
-                ResponseEntity<Map> response = apiSeletorTampa.getForEntity(url, Map.class);
+                ResponseEntity<Map> response = apiSeletorTampa.postForEntity(url, null, Map.class);
                 Map<String, Object> body = response.getBody();
 
                 if (body == null || !body.containsKey("status")) {
@@ -168,7 +180,8 @@ public class SmartController {
                 String status = body.get("status").toString();
                 System.out.println("Resposta do seletor de tampas: " + status);
 
-                if (!status.startsWith("Ok")) {
+                // Resposta do firmware: "Comando POST Ok. Posição selecionada" -> "Ok" no meio.
+                if (!status.contains("Ok")) {
                     return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                             .body("Erro: seletor de tampas não confirmou a posição. Resposta: " + status);
                 }
@@ -180,16 +193,59 @@ public class SmartController {
             }
 
             // === Só chega aqui se os dois passos anteriores foram bem sucedidos ===
+
+            // 3) Reservar o slot escolhido na tabela Expedicao (guardar na expedição),
+            //    associando-o ao número do pedido. Atualiza se a posição já existir.
+            int orderNumber = (idPedido != null) ? idPedido.intValue() : 0;
+            Expedicao exp = expedicaoRepository.findByPosicaoExpedicao(posExpedicao)
+                    .orElseGet(Expedicao::new);
+            exp.setPosicaoExpedicao(posExpedicao);
+            exp.setOrderNumber(orderNumber);
+            expedicaoRepository.save(exp);
+            System.out.println("Expedição: posição " + posExpedicao + " reservada para o pedido " + orderNumber);
+
             System.out.println("INICIAR PEDIDO 1");
             smartService.iniciarExecucaoPedido(ipClp);
 
             return ResponseEntity.ok("Pedido enviado e iniciado no CLP com sucesso.");
 
+        } catch (IllegalStateException e) {
+            // Estoque insuficiente para a cor escolhida -> informa o front.
+            // Importante: nada foi enviado ao CLP, pois a validação ocorre na montagem do pedido.
+            System.out.println("Pedido bloqueado por estoque: " + e.getMessage());
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(e.getMessage());
         } catch (Exception e) {
             e.printStackTrace();
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body("Erro ao processar pedido: " + e.getMessage());
         }
+    }
+
+    // Nome amigável da cor do bloco (1=Preto, 2=Vermelho, 3=Azul)
+    private String nomeCor(int cor) {
+        switch (cor) {
+            case 1: return "Preto";
+            case 2: return "Vermelho";
+            case 3: return "Azul";
+            default: return "Cor " + cor;
+        }
+    }
+
+    // Disponibilidade de blocos por cor no estoque (Gestão).
+    // Retorna { "1": qtdPreto, "2": qtdVermelho, "3": qtdAzul }
+    @GetMapping("/estoque/disponibilidade")
+    public ResponseEntity<Map<Integer, Integer>> disponibilidadeEstoque() {
+        Map<Integer, Integer> contagem = new java.util.HashMap<>();
+        contagem.put(1, 0);
+        contagem.put(2, 0);
+        contagem.put(3, 0);
+        for (Estoque e : estoqueRepository.findAll()) {
+            int cor = e.getCor();
+            if (cor >= 1 && cor <= 3) {
+                contagem.put(cor, contagem.get(cor) + 1);
+            }
+        }
+        return ResponseEntity.ok(contagem);
     }
 
     @PostMapping("/estoque/salvar")
@@ -367,7 +423,7 @@ public class SmartController {
         return ResponseEntity.ok(posicaoLivre);
     }
 
-    private byte[] montarPedidoParaCLP(List<BlocoDTO> pedido, Long idPedido) {
+    private byte[] montarPedidoParaCLP(List<BlocoDTO> pedido, Long idPedido, int posicaoExpedicao) {
         int[] dados = new int[30]; // 30 inteiros de 2 bytes = 60 bytes
         Set<Integer> posicoesUsadas = new HashSet<>(); // Para evitar duplicidade
         int andares = pedido.size();
@@ -382,13 +438,19 @@ public class SmartController {
 
             int corBloco = bloco.getCorBloco();
 
-            // Buscar posição disponível para essa cor, que ainda não foi usada
+            // Buscar posição disponível para essa cor no estoque (Gestão), que ainda não foi usada
             int posicaoEstoque = smartService.buscarPrimeiraPosicaoPorCor(corBloco, posicoesUsadas);
 
-            // Marcar como usada (se válida)
-            if (posicaoEstoque != -1) {
-                posicoesUsadas.add(posicaoEstoque);
+            // Validação: se não há posição com essa cor no estoque do Gestão, aborta o pedido
+            // (nada é enviado ao CLP, pois isto roda antes do envio).
+            if (posicaoEstoque == -1) {
+                throw new IllegalStateException(
+                        "Sem bloco da cor " + nomeCor(corBloco) + " disponível no estoque (andar "
+                                + bloco.getAndar() + ").");
             }
+
+            // Marcar como usada
+            posicoesUsadas.add(posicaoEstoque);
 
             dados[indexBase] = corBloco;
             dados[indexBase + 1] = posicaoEstoque;
@@ -406,8 +468,8 @@ public class SmartController {
         //int nextOrderProduction = pedidoRepository.findMaxOrderProduction() + 1;
         dados[27] = idPedido != null ? idPedido.intValue() : 0;
         dados[28] = andares;
-        // int posicaoExpedicao = smartService.buscarPrimeiraPosicaoLivreExp();
-        // dados[29] = posicaoExpedicao;
+        // Posição de guardar na expedição -> escrita na memória do CLP (DB9)
+        dados[29] = posicaoExpedicao;
 
         // Impressão dos dados antes da conversão para byte[]
         System.out.println("// InfoPedido");
@@ -428,7 +490,7 @@ public class SmartController {
         // Extras, se estiverem disponíveis em algum contexto
         System.out.println("numeroPedidoEst...............: " + idPedido); // adapte conforme necessário
         System.out.println("andares.......................: " + andares);
-        System.out.println("posicaoExpedicaoEst...........: " + 0); // adapte conforme necessário
+        System.out.println("posicaoExpedicaoEst...........: " + posicaoExpedicao);
 
         // Converte os 30 inteiros (int[30]) em 60 bytes (byte[])
         ByteBuffer buffer = ByteBuffer.allocate(60).order(ByteOrder.BIG_ENDIAN);

@@ -17,6 +17,24 @@
                 <option value="3">Azul</option>
             </select>
         </div>
+        <div class="input-box">
+            <label for="posExpedicao" style="text-align: left; padding-top: 5px;">Guardar na Expedição:</label>
+            <select id="posExpedicao">
+                <option value="0">Automática (1ª livre)</option>
+                <option value="1">Posição 1</option>
+                <option value="2">Posição 2</option>
+                <option value="3">Posição 3</option>
+                <option value="4">Posição 4</option>
+                <option value="5">Posição 5</option>
+                <option value="6">Posição 6</option>
+                <option value="7">Posição 7</option>
+                <option value="8">Posição 8</option>
+                <option value="9">Posição 9</option>
+                <option value="10">Posição 10</option>
+                <option value="11">Posição 11</option>
+                <option value="12">Posição 12</option>
+            </select>
+        </div>
     </div>
 
     <div id="main-blocos">
@@ -123,8 +141,9 @@
 
     <div class="tipoBlock">
         <button onclick="salvarPedido()">Salvar Pedido</button>
-        <button onclick="executarPedido()">Executar Pedido</button>
+        <button id="btnExecutarPedido" onclick="executarPedido()">Executar Pedido</button>
     </div>
+    <p id="avisoEstoque" style="text-align:center; color:#c00; font-weight:bold; margin:6px 0;"></p>
     <script>
         // função para renderizar a construção dinamica do bloco
         function renderBlocos() {
@@ -161,7 +180,7 @@
             
             <div class="input-box">
                 <label  for="block-color-${nBloco}">Cor do Bloco:
-                    <select name="block-color-${nBloco}" id="block-color-${nBloco}" onchange="changePedidoView(${nBloco})">
+                    <select name="block-color-${nBloco}" id="block-color-${nBloco}" onchange="changePedidoView(${nBloco}); validarEstoqueBlocos();">
                         <option value="">Nenhum</option>
                         <option value="preto">Preto</option>
                         <option value="vermelho">Vermelho</option>
@@ -246,6 +265,70 @@
                 container.appendChild(blocoDiv);
                 //revisarPedido();
             }
+            validarEstoqueBlocos();
+        }
+
+        // === Validação de estoque (Gestão) ===
+        // Consulta quantos blocos de cada cor existem no estoque configurado no Gestão.
+        async function carregarDisponibilidadeEstoque() {
+            try {
+                const res = await fetch("/estoque/disponibilidade");
+                if (!res.ok) return null;
+                return await res.json(); // { "1": qtdPreto, "2": qtdVermelho, "3": qtdAzul }
+            } catch (e) {
+                console.error("Erro ao consultar disponibilidade de estoque:", e);
+                return null;
+            }
+        }
+
+        // Mapeia o valor do select de cor do bloco para o código (1=Preto, 2=Vermelho, 3=Azul).
+        // Vazio cai em azul (3), igual ao que é enviado no pedido.
+        function codigoCorBloco(valor) {
+            const v = (valor || "").toLowerCase();
+            if (v === "preto") return 1;
+            if (v === "vermelho") return 2;
+            return 3;
+        }
+
+        // Valida se as cores escolhidas cabem no estoque do Gestão.
+        // Informa no front e desabilita "Executar Pedido" quando faltar cor.
+        async function validarEstoqueBlocos() {
+            const aviso = document.getElementById("avisoEstoque");
+            const btn = document.getElementById("btnExecutarPedido");
+            const disp = await carregarDisponibilidadeEstoque();
+
+            if (!disp) { // sem dados: não bloqueia
+                if (aviso) aviso.textContent = "";
+                if (btn) btn.disabled = false;
+                return true;
+            }
+
+            const nomes = { 1: "Preto", 2: "Vermelho", 3: "Azul" };
+            const usadas = { 1: 0, 2: 0, 3: 0 };
+
+            document.querySelectorAll(".bloco").forEach((el, idx) => {
+                const sel = document.getElementById(`block-color-${idx + 1}`);
+                if (!sel) return;
+                const cor = codigoCorBloco(sel.value);
+                usadas[cor] = (usadas[cor] || 0) + 1;
+            });
+
+            const faltas = [];
+            [1, 2, 3].forEach(c => {
+                const emEstoque = parseInt(disp[c] ?? disp[String(c)] ?? 0);
+                if (usadas[c] > emEstoque) {
+                    faltas.push(`${nomes[c]} (pedido: ${usadas[c]}, estoque: ${emEstoque})`);
+                }
+            });
+
+            if (faltas.length > 0) {
+                if (aviso) aviso.textContent = "Estoque insuficiente no Gestão para: " + faltas.join("; ");
+                if (btn) btn.disabled = true;
+                return false;
+            }
+            if (aviso) aviso.textContent = "";
+            if (btn) btn.disabled = false;
+            return true;
         }
 
         // função para revisar a edição dos blocos do pedido
@@ -751,7 +834,7 @@
             });
         }
 
-        function executarPedido() {
+        async function executarPedido() {
             const tipo = document.getElementById("tipoPedido").value;
             const tampa = document.getElementById("corTampa").value;
             const ipClp = document.getElementById("hostIpEstoque").value;
@@ -768,6 +851,14 @@
 
             if (!pedidoId) {
                 alert("ID do pedido não encontrado!");
+                return;
+            }
+
+            // Validação de estoque (Gestão) antes de enviar ao CLP
+            const estoqueOk = await validarEstoqueBlocos();
+            if (!estoqueOk) {
+                const aviso = document.getElementById("avisoEstoque");
+                alert(aviso && aviso.textContent ? aviso.textContent : "Estoque insuficiente no Gestão para a(s) cor(es) escolhida(s).");
                 return;
             }
 
@@ -801,6 +892,7 @@
                 tipo: tipo,
                 tampa: tampa,
                 ipClp: ipClp,
+                posicaoExpedicao: parseInt(document.getElementById("posExpedicao").value) || 0,
                 blocos: blocos
             };
 
@@ -811,14 +903,16 @@
                 },
                 body: JSON.stringify(pedidoDTO)
             })
-                .then(response => {
+                .then(async response => {
+                    const msg = await response.text();
                     if (response.ok) {
                         alert("Pedido executado com sucesso!");
                         if (typeof atualizarStatusPedidoConcluido === "function") {
                             atualizarStatusPedidoConcluido(pedidoId);
                         }
                     } else {
-                        alert("Erro ao executar pedido.");
+                        // Mostra a mensagem do servidor (ex.: sem bloco da cor escolhida no estoque)
+                        alert(msg || "Erro ao executar pedido.");
                     }
                 })
                 .catch(error => {

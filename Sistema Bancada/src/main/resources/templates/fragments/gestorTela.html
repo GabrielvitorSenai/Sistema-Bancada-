@@ -98,14 +98,44 @@
             width: 100%;
             height: 100%;
             text-align: center;
-            font-size: 14px;
-            padding: 5px;
+            text-align-last: center;
+            /* centraliza o texto também no <select> */
+            font-size: 13px;
+            font-weight: bold;
+            padding: 2px;
+            cursor: pointer;
             box-sizing: border-box;
             border-radius: 6px;
             border: 1px solid #999;
             box-shadow: inset -2px -2px 4px #ffffff, inset 2px 2px 6px #c0c0c0;
             background: linear-gradient(to bottom, #f0f0f0, #dcdcdc);
             transition: background 0.2s, box-shadow 0.2s;
+            /* remove a aparência nativa para a cor preencher a célula toda */
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+        }
+
+        /* Cores das opções dentro da lista suspensa (quando aberta) */
+        .input-celula option {
+            font-weight: bold;
+            background-color: #ffffff;
+            color: #000;
+        }
+
+        .input-celula option[value="1"] {
+            background-color: #000000;
+            color: #fff;
+        }
+
+        .input-celula option[value="2"] {
+            background-color: #cc0000;
+            color: #fff;
+        }
+
+        .input-celula option[value="3"] {
+            background-color: #0000cc;
+            color: #fff;
         }
 
         /* Cores condicionais */
@@ -167,41 +197,181 @@
         <div class="section-gestor">
             <h2>Magazine de Estoque</h2>
             <div class="grid estoque">
-                <!-- 5x6 = 30 inputs, 2 ocultos -->
-                <!-- Gerado manualmente -->
+                <!-- 5x6 = 30 posições, 2 ocultas (29 e 30) -->
+                <!-- Cada posição é uma lista suspensa: 0=Vazio, 1=Preto, 2=Vermelho, 3=Azul -->
                 <!-- Linha 1 -->
-                <input type="text" class="input-celula" maxlength="1">
-                <input type="text" class="input-celula" maxlength="1">
-                <input type="text" class="input-celula" maxlength="1">
-                <input type="text" class="input-celula" maxlength="1">
-                <input type="text" class="input-celula" maxlength="1">
-                <input type="text" class="input-celula" maxlength="1">
+                <select class="input-celula">
+                    <option value="0">Vazio</option>
+                    <option value="1">Preto</option>
+                    <option value="2">Vermelho</option>
+                    <option value="3">Azul</option>
+                </select>
+                <select class="input-celula">
+                    <option value="0">Vazio</option>
+                    <option value="1">Preto</option>
+                    <option value="2">Vermelho</option>
+                    <option value="3">Azul</option>
+                </select>
+                <select class="input-celula">
+                    <option value="0">Vazio</option>
+                    <option value="1">Preto</option>
+                    <option value="2">Vermelho</option>
+                    <option value="3">Azul</option>
+                </select>
+                <select class="input-celula">
+                    <option value="0">Vazio</option>
+                    <option value="1">Preto</option>
+                    <option value="2">Vermelho</option>
+                    <option value="3">Azul</option>
+                </select>
+                <select class="input-celula">
+                    <option value="0">Vazio</option>
+                    <option value="1">Preto</option>
+                    <option value="2">Vermelho</option>
+                    <option value="3">Azul</option>
+                </select>
+                <select class="input-celula">
+                    <option value="0">Vazio</option>
+                    <option value="1">Preto</option>
+                    <option value="2">Vermelho</option>
+                    <option value="3">Azul</option>
+                </select>
                 <!-- Linha 2 -->
-                <input type="text" class="input-celula" maxlength="1">
-                <input type="text" class="input-celula" maxlength="1">
-                <input type="text" class="input-celula" maxlength="1">
-                <input type="text" class="input-celula" maxlength="1">
-                <input type="text" class="input-celula" maxlength="1">
-                <input type="text" class="input-celula" maxlength="1">
+                <select class="input-celula">
+                    <option value="0">Vazio</option>
+                    <option value="1">Preto</option>
+                    <option value="2">Vermelho</option>
+                    <option value="3">Azul</option>
+                </select>
+                <select class="input-celula">
+                    <option value="0">Vazio</option>
+                    <option value="1">Preto</option>
+                    <option value="2">Vermelho</option>
+                    <option value="3">Azul</option>
+                </select>
+                <select class="input-celula">
+                    <option value="0">Vazio</option>
+                    <option value="1">Preto</option>
+                    <option value="2">Vermelho</option>
+                    <option value="3">Azul</option>
+                </select>
+                <select class="input-celula">
+                    <option value="0">Vazio</option>
+                    <option value="1">Preto</option>
+                    <option value="2">Vermelho</option>
+                    <option value="3">Azul</option>
+                </select>
+                <select class="input-celula">
+                    <option value="0">Vazio</option>
+                    <option value="1">Preto</option>
+                    <option value="2">Vermelho</option>
+                    <option value="3">Azul</option>
+                </select>
+                <select class="input-celula">
+                    <option value="0">Vazio</option>
+                    <option value="1">Preto</option>
+                    <option value="2">Vermelho</option>
+                    <option value="3">Azul</option>
+                </select>
                 <!-- Linha 3 -->
-                <input type="text" class="input-celula" maxlength="1">
-                <input type="text" class="input-celula" maxlength="1">
-                <input type="text" class="input-celula" maxlength="1">
-                <input type="text" class="input-celula" maxlength="1">
-                <input type="text" class="input-celula" maxlength="1">
-                <input type="text" class="input-celula" maxlength="1">
+                <select class="input-celula">
+                    <option value="0">Vazio</option>
+                    <option value="1">Preto</option>
+                    <option value="2">Vermelho</option>
+                    <option value="3">Azul</option>
+                </select>
+                <select class="input-celula">
+                    <option value="0">Vazio</option>
+                    <option value="1">Preto</option>
+                    <option value="2">Vermelho</option>
+                    <option value="3">Azul</option>
+                </select>
+                <select class="input-celula">
+                    <option value="0">Vazio</option>
+                    <option value="1">Preto</option>
+                    <option value="2">Vermelho</option>
+                    <option value="3">Azul</option>
+                </select>
+                <select class="input-celula">
+                    <option value="0">Vazio</option>
+                    <option value="1">Preto</option>
+                    <option value="2">Vermelho</option>
+                    <option value="3">Azul</option>
+                </select>
+                <select class="input-celula">
+                    <option value="0">Vazio</option>
+                    <option value="1">Preto</option>
+                    <option value="2">Vermelho</option>
+                    <option value="3">Azul</option>
+                </select>
+                <select class="input-celula">
+                    <option value="0">Vazio</option>
+                    <option value="1">Preto</option>
+                    <option value="2">Vermelho</option>
+                    <option value="3">Azul</option>
+                </select>
                 <!-- Linha 4 -->
-                <input type="text" class="input-celula" maxlength="1">
-                <input type="text" class="input-celula" maxlength="1">
-                <input type="text" class="input-celula" maxlength="1">
-                <input type="text" class="input-celula" maxlength="1">
-                <input type="text" class="input-celula" maxlength="1">
-                <input type="text" class="input-celula" maxlength="1">
+                <select class="input-celula">
+                    <option value="0">Vazio</option>
+                    <option value="1">Preto</option>
+                    <option value="2">Vermelho</option>
+                    <option value="3">Azul</option>
+                </select>
+                <select class="input-celula">
+                    <option value="0">Vazio</option>
+                    <option value="1">Preto</option>
+                    <option value="2">Vermelho</option>
+                    <option value="3">Azul</option>
+                </select>
+                <select class="input-celula">
+                    <option value="0">Vazio</option>
+                    <option value="1">Preto</option>
+                    <option value="2">Vermelho</option>
+                    <option value="3">Azul</option>
+                </select>
+                <select class="input-celula">
+                    <option value="0">Vazio</option>
+                    <option value="1">Preto</option>
+                    <option value="2">Vermelho</option>
+                    <option value="3">Azul</option>
+                </select>
+                <select class="input-celula">
+                    <option value="0">Vazio</option>
+                    <option value="1">Preto</option>
+                    <option value="2">Vermelho</option>
+                    <option value="3">Azul</option>
+                </select>
+                <select class="input-celula">
+                    <option value="0">Vazio</option>
+                    <option value="1">Preto</option>
+                    <option value="2">Vermelho</option>
+                    <option value="3">Azul</option>
+                </select>
                 <!-- Linha 5 -->
-                <input type="text" class="input-celula" maxlength="1">
-                <input type="text" class="input-celula" maxlength="1">
-                <input type="text" class="input-celula" maxlength="1">
-                <input type="text" class="input-celula" maxlength="1">
+                <select class="input-celula">
+                    <option value="0">Vazio</option>
+                    <option value="1">Preto</option>
+                    <option value="2">Vermelho</option>
+                    <option value="3">Azul</option>
+                </select>
+                <select class="input-celula">
+                    <option value="0">Vazio</option>
+                    <option value="1">Preto</option>
+                    <option value="2">Vermelho</option>
+                    <option value="3">Azul</option>
+                </select>
+                <select class="input-celula">
+                    <option value="0">Vazio</option>
+                    <option value="1">Preto</option>
+                    <option value="2">Vermelho</option>
+                    <option value="3">Azul</option>
+                </select>
+                <select class="input-celula">
+                    <option value="0">Vazio</option>
+                    <option value="1">Preto</option>
+                    <option value="2">Vermelho</option>
+                    <option value="3">Azul</option>
+                </select>
                 <input type="text" class="invisivel">
                 <input type="text" class="invisivel">
             </div>
@@ -274,7 +444,7 @@
                 };
 
                 applyColor(); // Aplicar estilo inicial
-                input.addEventListener("input", applyColor);
+                input.addEventListener("change", applyColor); // <select> dispara "change"
             });
         }
 

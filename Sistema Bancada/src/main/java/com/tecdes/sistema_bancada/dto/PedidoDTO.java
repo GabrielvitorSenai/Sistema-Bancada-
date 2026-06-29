@@ -8,6 +8,7 @@ public class PedidoDTO {
     private Long id;
     private String tipo;
     private int tampa;
+    private int posicaoExpedicao; // slot de guardar na expedição (1..12); 0 = automático
 
     private String ipClp;
     private String statusOrderProduction;
@@ -37,6 +38,14 @@ public class PedidoDTO {
 
     public void setTampa(int tampa) {
         this.tampa = tampa;
+    }
+
+    public int getPosicaoExpedicao() {
+        return posicaoExpedicao;
+    }
+
+    public void setPosicaoExpedicao(int posicaoExpedicao) {
+        this.posicaoExpedicao = posicaoExpedicao;
     }
     
     public String getIpClp() {
