@@ -63,16 +63,30 @@
     }
 
     function obterPosicaoExpedicaoSelecionada() {
-        if (window.posicaoExpedicaoFinalizadaDetectada) {
-            return parseInt(window.posicaoExpedicaoFinalizadaDetectada) || 0;
-        }
-
         const posSession = parseInt(sessionStorage.getItem("posicaoExpedicaoAtual"));
         if (posSession) return posSession;
 
         const el = document.getElementById("posExpedicao");
-        if (!el) return 0;
-        return parseInt(el.value) || 0;
+        if (el) {
+            const posTela = parseInt(el.value) || 0;
+            if (posTela) return posTela;
+        }
+
+        if (window.posicaoExpedicaoFinalizadaDetectada) {
+            return parseInt(window.posicaoExpedicaoFinalizadaDetectada) || 0;
+        }
+
+        return 0;
+    }
+
+    function obterSnapshotExpedicao() {
+        try {
+            const salvo = sessionStorage.getItem("expedicaoSnapshotAntesPedido");
+            return salvo ? JSON.parse(salvo) : {};
+        } catch (e) {
+            console.warn("Snapshot da expedição inválido:", e);
+            return {};
+        }
     }
 
     function atualizarVisualExpedicaoDepois() {
@@ -91,7 +105,32 @@
         sessionStorage.removeItem("pedidoEmCurso");
         sessionStorage.removeItem("pedidoIdAtual");
         sessionStorage.removeItem("posicaoExpedicaoAtual");
+        sessionStorage.removeItem("expedicaoSnapshotAntesPedido");
         window.posicaoExpedicaoFinalizadaDetectada = null;
+    }
+
+    function corrigirDuplicidadeExpedicao(pedidoId, posicaoExpedicao, ipExpedicao) {
+        const snapshot = obterSnapshotExpedicao();
+
+        return fetch("/expedicao/corrigir-duplicidade", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                pedidoId: pedidoId,
+                posicaoCorreta: posicaoExpedicao,
+                ipClp: ipExpedicao,
+                snapshot: snapshot
+            })
+        })
+            .then(async response => {
+                const texto = await response.text();
+                if (!response.ok) {
+                    console.error("Erro ao corrigir duplicidade da expedição:", texto);
+                    return;
+                }
+                console.log(texto || "Duplicidade da expedição corrigida.");
+            })
+            .catch(err => console.error("Erro na correção de duplicidade da expedição:", err));
     }
 
     function finalizarPedidoCorrigido() {
@@ -147,8 +186,16 @@
                 }
 
                 console.log(texto || "Pedido finalizado e expedição gravada no CLP.");
-                limparPedidoAtualFinalizado();
-                atualizarVisualExpedicaoDepois();
+
+                // Aguarda um pequeno intervalo porque o SmartService também lê os sinais do CLP.
+                // Se ele tentou escrever a mesma OP em outra posição, este endpoint restaura só essa duplicidade.
+                setTimeout(() => {
+                    corrigirDuplicidadeExpedicao(pedidoId, posicaoExpedicao, ipExpedicao)
+                        .finally(() => {
+                            limparPedidoAtualFinalizado();
+                            atualizarVisualExpedicaoDepois();
+                        });
+                }, 900);
             })
             .catch(err => {
                 console.error("Erro ao finalizar pedido:", err);
@@ -201,10 +248,12 @@
                 clpConfirmouPedido;
 
             if (finalizou) {
-                if (posicaoGuardada >= 1 && posicaoGuardada <= 12) {
-                    window.posicaoExpedicaoFinalizadaDetectada = posicaoGuardada;
-                } else if (posicaoSelecionada >= 1 && posicaoSelecionada <= 12) {
+                // A regra do sistema é respeitar a posição selecionada na execução.
+                // A posição lida do CLP só é usada como fallback quando não houver posição selecionada válida.
+                if (posicaoSelecionada >= 1 && posicaoSelecionada <= 12) {
                     window.posicaoExpedicaoFinalizadaDetectada = posicaoSelecionada;
+                } else if (posicaoGuardada >= 1 && posicaoGuardada <= 12) {
+                    window.posicaoExpedicaoFinalizadaDetectada = posicaoGuardada;
                 }
 
                 console.log("Finalização detectada pelo CLP4", {
