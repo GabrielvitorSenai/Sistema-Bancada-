@@ -22,9 +22,25 @@
         return match ? parseInt(match[1]) : null;
     }
 
-    function capturarSnapshotExpedicao() {
+    async function capturarSnapshotExpedicao() {
         const snapshot = {};
 
+        // Primeiro tenta pegar do banco, que é a fonte mais confiável do que já estava salvo.
+        try {
+            const response = await fetch("/pedidos-expedicao", { cache: "no-store" });
+            if (response.ok) {
+                const dados = await response.json();
+                for (let i = 1; i <= 12; i++) {
+                    snapshot[String(i)] = parseInt(dados[`P${i}`] || 0) || 0;
+                }
+                sessionStorage.setItem("expedicaoSnapshotAntesPedido", JSON.stringify(snapshot));
+                return snapshot;
+            }
+        } catch (e) {
+            console.warn("Não foi possível capturar snapshot da expedição pelo banco; usando tela.", e);
+        }
+
+        // Fallback: usa a tela caso o endpoint falhe.
         for (let i = 1; i <= 12; i++) {
             const celula = document.getElementById(`expedicao-${i}`);
             const valor = parseInt(celula?.textContent || "0") || 0;
@@ -96,7 +112,7 @@
             sessionStorage.removeItem("posicaoExpedicaoAtual");
         }
 
-        capturarSnapshotExpedicao();
+        await capturarSnapshotExpedicao();
 
         const pedidoDTO = {
             id: pedidoId,
