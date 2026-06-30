@@ -1,9 +1,6 @@
 package com.tecdes.sistema_bancada.controller;
 
-import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -44,21 +41,10 @@ public class ExpedicaoCorrecaoController {
                 return ResponseEntity.badRequest().body("IP do CLP de Expedição não informado.");
             }
 
-            Set<Integer> posicoesParaCorrigir = new HashSet<>();
-            posicoesParaCorrigir.add(posicaoCorreta);
-
-            List<Expedicao> posicoesAtuais = expedicaoRepository.findAll();
-            for (Expedicao exp : posicoesAtuais) {
-                if (exp.getOrderNumber() == pedidoId && exp.getPosicaoExpedicao() != posicaoCorreta) {
-                    posicoesParaCorrigir.add(exp.getPosicaoExpedicao());
-                }
-            }
-
-            for (Integer posicao : posicoesParaCorrigir) {
-                if (posicao == null || posicao < 1 || posicao > 12) {
-                    continue;
-                }
-
+            // Reconciliamos as 12 posições com a foto tirada antes da execução.
+            // Regra: somente a posição correta recebe o pedido novo; todas as outras voltam ao valor anterior.
+            // Isso corrige tanto duplicidade no banco quanto duplicidade que ficou só na memória do CLP.
+            for (int posicao = 1; posicao <= 12; posicao++) {
                 int valorCorreto = (posicao == posicaoCorreta)
                         ? pedidoId
                         : valorSnapshot(snapshot, posicao);
@@ -68,11 +54,12 @@ public class ExpedicaoCorrecaoController {
                 boolean escrito = escreverPosicaoNoClp(ipClp, posicao, valorCorreto);
                 if (!escrito) {
                     return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                            .body("Falha ao corrigir posição " + posicao + " no CLP de Expedição.");
+                            .body("Falha ao reconciliar posição " + posicao + " no CLP de Expedição.");
                 }
             }
 
-            return ResponseEntity.ok("Correção de duplicidade da expedição concluída.");
+            return ResponseEntity.ok("Reconciliação da expedição concluída: pedido " + pedidoId
+                    + " mantido apenas na posição " + posicaoCorreta + ".");
         } catch (Exception e) {
             e.printStackTrace();
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -105,7 +92,8 @@ public class ExpedicaoCorrecaoController {
 
         int offset = 6 + ((posicao - 1) * 2);
         try {
-            System.out.println("Corrigindo expedição - posição " + posicao + " offset DB9:" + offset + " valor:" + valor);
+            System.out.println("Reconciliando expedição - posição " + posicao + " offset DB9:"
+                    + offset + " valor:" + valor);
             plcConnector.writeInt(9, offset, valor);
             return true;
         } catch (Exception e) {
@@ -116,6 +104,9 @@ public class ExpedicaoCorrecaoController {
 
     private int valorSnapshot(Map<?, ?> snapshot, int posicao) {
         Object valor = snapshot.get(String.valueOf(posicao));
+        if (valor == null) {
+            valor = snapshot.get("P" + posicao);
+        }
         if (valor == null) {
             valor = snapshot.get(posicao);
         }
