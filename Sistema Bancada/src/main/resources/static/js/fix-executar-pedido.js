@@ -12,6 +12,9 @@
             console.warn("Falha ao obter ID pelo helper:", e);
         }
 
+        const idSession = parseInt(sessionStorage.getItem("pedidoIdAtual"));
+        if (idSession) return idSession;
+
         const el = document.getElementById("pedido-id");
         if (!el) return null;
 
@@ -36,12 +39,14 @@
         }
 
         window.pedidoIdAtual = pedidoId;
+        sessionStorage.setItem("pedidoIdAtual", String(pedidoId));
 
         if (typeof validarEstoqueBlocos === "function") {
             const estoqueOk = await validarEstoqueBlocos();
             if (!estoqueOk) {
                 const aviso = document.getElementById("avisoEstoque");
                 alert(aviso && aviso.textContent ? aviso.textContent : "Estoque insuficiente no Gestão para a(s) cor(es) escolhida(s).");
+                sessionStorage.removeItem("pedidoIdAtual");
                 return false;
             }
         }
@@ -71,12 +76,19 @@
             blocos.push(bloco);
         }
 
+        const posicaoExpedicao = parseInt(document.getElementById("posExpedicao")?.value) || 0;
+        if (posicaoExpedicao >= 1 && posicaoExpedicao <= 12) {
+            sessionStorage.setItem("posicaoExpedicaoAtual", String(posicaoExpedicao));
+        } else {
+            sessionStorage.removeItem("posicaoExpedicaoAtual");
+        }
+
         const pedidoDTO = {
             id: pedidoId,
             tipo: tipo,
             tampa: tampa,
             ipClp: ipClp,
-            posicaoExpedicao: parseInt(document.getElementById("posExpedicao")?.value) || 0,
+            posicaoExpedicao: posicaoExpedicao,
             blocos: blocos
         };
 
@@ -91,14 +103,21 @@
 
             if (!response.ok) {
                 alert(msg || "Erro ao executar pedido.");
+                sessionStorage.removeItem("pedidoIdAtual");
+                sessionStorage.removeItem("posicaoExpedicaoAtual");
+                sessionStorage.removeItem("pedidoEmCurso");
                 return false;
             }
 
+            sessionStorage.setItem("pedidoEmCurso", "true");
             alert("Pedido executado com sucesso!");
             return true;
         } catch (error) {
             console.error("Erro na requisição:", error);
             alert("Erro na comunicação com o servidor.");
+            sessionStorage.removeItem("pedidoIdAtual");
+            sessionStorage.removeItem("posicaoExpedicaoAtual");
+            sessionStorage.removeItem("pedidoEmCurso");
             return false;
         }
     }
@@ -115,6 +134,10 @@
         if (typeof pedidoEmCurso !== "undefined") pedidoEmCurso = false;
         if (typeof pedidoFinalizado !== "undefined") pedidoFinalizado = false;
         if (typeof pedidoConcluido !== "undefined") pedidoConcluido = false;
+
+        sessionStorage.removeItem("pedidoEmCurso");
+        sessionStorage.removeItem("pedidoIdAtual");
+        sessionStorage.removeItem("posicaoExpedicaoAtual");
 
         fetch("/smart/reset-status", { method: "POST" })
             .then(response => {
