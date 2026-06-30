@@ -13,6 +13,7 @@ let statusMontagem = 0;
 let statusExpedicao = 0;
 let statusProducao = 0;
 let pedidoEmCurso = 0;
+let pedidoFinalizado = false; // trava one-shot: evita finalizar o pedido em loop a cada leitura
 
 console.info("Painel Linha Didática 4.0 iniciado");
 
@@ -167,6 +168,7 @@ function processarDadosClp(clp, data) {
 
             if (statusEstoque === 1 && statusProcesso === 0 && statusMontagem === 0 && statusExpedicao === 0) {
                 pedidoEmCurso = true;
+                pedidoFinalizado = false; // novo ciclo: rearma a finalização
                 iniciarContador();
             }
 
@@ -393,18 +395,12 @@ function processarDadosClp(clp, data) {
             recebidoOpExp = (byteArray[0] & 0b00000001) !== 0;
             finishOpExp = (byteArray[32] & 0b00000010) !== 0;
 
-            if (recebidoOpExp && finishOpExp) {
-                pedidoConcluido = true;
-            }
-            // Aí você dispara/para o contador:
-            // if ((statusProducao === 1 && pedidoEmCurso === 0) && contadorInterval) {
-            //     pararContador();
-            // }
+            // Fim da operação: expedição recebeu E finalizou, OU todas as estações concluídas (status 2)
+            const todasConcluidas =
+                (statusEstoque == 2 && statusProcesso == 2 && statusMontagem == 2 && statusExpedicao == 2);
 
-            if (statusEstoque == 2 && statusProcesso == 2 && statusMontagem == 2 && statusExpedicao == 2) {
-                pedidoEmCurso = false;
-                pararContador();
-                document.getElementById("btnExecutarPedidoProducao").textContent = "Pedido concluido";
+            if ((recebidoOpExp && finishOpExp) || todasConcluidas) {
+                finalizarPedido(); // one-shot (protegido por pedidoFinalizado)
             }
 
 
@@ -681,6 +677,62 @@ window.addEventListener('load', () => {
         renderBlocos(); // ou algum outro método para reativar lógica JS
     }
 });
+
+// Obtém o ID do pedido em curso (definido na execução, em window.pedidoIdAtual;
+// fallback: lê do elemento #pedido-id da tela da Loja).
+function obterPedidoIdAtual() {
+    if (window.pedidoIdAtual) return window.pedidoIdAtual;
+    const el = document.getElementById("pedido-id");
+    if (el) {
+        const m = el.innerText.match(/#(\d+)/);
+        if (m) return parseInt(m[1]);
+    }
+    return null;
+}
+
+// Fecha o ciclo do pedido quando a operação termina:
+// 1) para o contador e marca como concluído na tela
+// 2) marca o pedido como "concluido" no banco
+// 3) salva a expedição no CLP (posição onde o pedido ficou)
+function finalizarPedido() {
+    if (pedidoFinalizado) return; // já finalizado neste ciclo
+    pedidoFinalizado = true;
+
+    // 1) Para o contador e marca conclusão na tela
+    pedidoConcluido = true;
+    pedidoEmCurso = false;
+    pararContador();
+    const btn = document.getElementById("btnExecutarPedidoProducao");
+    if (btn) btn.textContent = "Pedido concluido";
+
+    // 2) Marca o pedido como concluído no banco
+    const pedidoId = obterPedidoIdAtual();
+    if (pedidoId) {
+        fetch("/salvar-pedido/status", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: pedidoId, statusOrderProduction: "concluido" })
+        })
+            .then(r => console.log("Pedido " + pedidoId + " concluído no banco:", r.ok))
+            .catch(err => console.error("Erro ao concluir pedido:", err));
+    } else {
+        console.warn("finalizarPedido: ID do pedido não encontrado para marcar como concluído.");
+    }
+
+    // 3) Salva a expedição no CLP (grava a posição onde o pedido ficou)
+    const ipExpedicao = document.getElementById("hostIpExpedicao")?.value;
+    if (ipExpedicao) {
+        fetch("/clp/enviar-expedicao", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ipClp: ipExpedicao })
+        })
+            .then(r => console.log("Expedição salva no CLP:", r.ok))
+            .catch(err => console.error("Erro ao salvar expedição no CLP:", err));
+    } else {
+        console.warn("finalizarPedido: IP do CLP de Expedição não informado.");
+    }
+}
 
 function fases(fase) {
 

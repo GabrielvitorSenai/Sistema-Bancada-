@@ -853,6 +853,8 @@
                 alert("ID do pedido não encontrado!");
                 return;
             }
+            // Registra o pedido em curso para o smart.js fechar o ciclo ao terminar
+            window.pedidoIdAtual = pedidoId;
 
             // Validação de estoque (Gestão) antes de enviar ao CLP
             const estoqueOk = await validarEstoqueBlocos();
