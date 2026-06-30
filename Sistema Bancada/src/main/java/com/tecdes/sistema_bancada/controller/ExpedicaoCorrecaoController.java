@@ -132,4 +132,58 @@ public class ExpedicaoCorrecaoController {
     private String asString(Object valor) {
         return valor == null ? null : valor.toString();
     }
+    @PostMapping("/expedicao/preparar-posicao")
+public ResponseEntity<String> prepararPosicao(@RequestBody Map<String, Object> payload) {
+    try {
+        String ipClp = asString(payload.get("ipClp"));
+        int posicao = asInt(payload.get("posicao"));
+
+        if (posicao < 1 || posicao > 12) {
+            return ResponseEntity.badRequest().body("Posição de expedição inválida.");
+        }
+
+        if (ipClp == null || ipClp.isBlank()) {
+            return ResponseEntity.badRequest().body("IP do CLP de Expedição não informado.");
+        }
+
+        boolean ok = prepararPosicaoNoClp(ipClp, posicao);
+        if (!ok) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body("Falha ao preparar posição no CLP de Expedição.");
+        }
+
+        SmartService.posicaoExpedicaoSolicitada = posicao;
+
+        return ResponseEntity.ok("Posição " + posicao + " preparada no CLP de Expedição.");
+    } catch (Exception e) {
+        e.printStackTrace();
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body("Erro ao preparar posição da expedição: " + e.getMessage());
+    }
 }
+
+private boolean prepararPosicaoNoClp(String ipClp, int posicao) {
+    if (SmartService.readOnly) {
+        return true;
+    }
+
+    PlcConnector plcConnector = PlcConnectionManager.getConexao(ipClp);
+    if (plcConnector == null) {
+        return false;
+    }
+
+    try {
+        System.out.println("Preparando posição da Expedição no CLP. DB9:4 = " + posicao);
+
+        plcConnector.writeBit(9, 2, 1, false);
+        plcConnector.writeBit(9, 2, 0, false);
+        plcConnector.writeInt(9, 4, posicao);
+
+        return true;
+    } catch (Exception e) {
+        e.printStackTrace();
+        return false;
+    }
+}
+}
+
