@@ -125,7 +125,21 @@ public class SmartController {
             expedicaoRepository.save(exp);
             System.out.println("Expedição: posição " + posExpedicao + " reservada para o pedido " + orderNumber);
 
-            // 4) Inicia o pedido sem recalcular a posição de expedição.
+            // 4) Grava imediatamente a tabela da expedição na memória do CLP de Expedição.
+            // Antes isso só acontecia ao conectar/reconectar a bancada, por isso o F5 fazia aparecer.
+            String ipExpedicao = resolverIpExpedicao(ipClp);
+            if (ipExpedicao == null) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body("Erro: não foi possível descobrir o IP do CLP de Expedição a partir do IP do Estoque.");
+            }
+
+            boolean expedicaoEnviada = enviarExpedicaoAtualParaClp(ipExpedicao);
+            if (!expedicaoEnviada) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body("Erro: pedido salvo no banco, mas falhou ao gravar a expedição no CLP " + ipExpedicao + ".");
+            }
+
+            // 5) Inicia o pedido sem recalcular a posição de expedição.
             // Antes o service chamava buscarPrimeiraPosicaoLivreExp() de novo e podia escolher outra posição,
             // porque a posição correta já tinha sido reservada no banco.
             boolean inicioOk = iniciarExecucaoPedidoNaPosicao(ipClp, posExpedicao);
@@ -176,6 +190,50 @@ public class SmartController {
             e.printStackTrace();
             return false;
         }
+    }
+
+    private String resolverIpExpedicao(String ipClpEstoque) {
+        if (ipClpEstoque == null || ipClpEstoque.isBlank()) {
+            return null;
+        }
+
+        String[] partes = ipClpEstoque.trim().split("\\.");
+        if (partes.length != 4) {
+            return null;
+        }
+
+        // Padrão usado no front: Estoque .10, Processo .20, Montagem .30, Expedição .40.
+        return partes[0] + "." + partes[1] + "." + partes[2] + ".40";
+    }
+
+    private boolean enviarExpedicaoAtualParaClp(String ipClpExpedicao) {
+        List<Expedicao> listaExpedicao = expedicaoRepository.findAll();
+        byte[] byteBlocosArray = montarBytesExpedicao(listaExpedicao);
+
+        System.out.print("Bytes enviados ao CLP Expedição: ");
+        for (byte b : byteBlocosArray) {
+            System.out.printf("%02X ", b);
+        }
+        System.out.println();
+
+        return smartService.enviarBlocoBytesAoClp(ipClpExpedicao, 9, 6, byteBlocosArray, byteBlocosArray.length);
+    }
+
+    private byte[] montarBytesExpedicao(List<Expedicao> listaExpedicao) {
+        byte[] byteBlocosArray = new byte[24];
+
+        for (Expedicao e : listaExpedicao) {
+            int pos = e.getPosicaoExpedicao();
+            int valor = e.getOrderNumber();
+
+            if (pos >= 1 && pos <= 12) {
+                int index = (pos - 1) * 2;
+                byteBlocosArray[index] = (byte) (valor >> 8);
+                byteBlocosArray[index + 1] = (byte) (valor & 0xFF);
+            }
+        }
+
+        return byteBlocosArray;
     }
 
     private String nomeCor(int cor) {
@@ -324,27 +382,7 @@ public class SmartController {
                 return ResponseEntity.badRequest().body("Endereço IP do CLP de Expedição não fornecido.");
             }
 
-            List<Expedicao> listaExpedicao = expedicaoRepository.findAll();
-            byte[] byteBlocosArray = new byte[24];
-
-            for (Expedicao e : listaExpedicao) {
-                int pos = e.getPosicaoExpedicao();
-                int valor = e.getOrderNumber();
-
-                if (pos >= 1 && pos <= 12) {
-                    int index = (pos - 1) * 2;
-                    byteBlocosArray[index] = (byte) (valor >> 8);
-                    byteBlocosArray[index + 1] = (byte) (valor & 0xFF);
-                }
-            }
-
-            System.out.print("Bytes enviados ao CLP Expedição: ");
-            for (byte b : byteBlocosArray) {
-                System.out.printf("%02X ", b);
-            }
-            System.out.println();
-
-            boolean ok = smartService.enviarBlocoBytesAoClp(ipClpExpedicao, 9, 6, byteBlocosArray, byteBlocosArray.length);
+            boolean ok = enviarExpedicaoAtualParaClp(ipClpExpedicao);
             if (!ok) {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                         .body("Erro: falha ao enviar dados ao CLP de Expedição.");
