@@ -187,18 +187,21 @@ public class SmartController {
             exp.setOrderNumber(idPedido.intValue());
             expedicaoRepository.save(exp);
 
-            // Agora sim escreve a tabela da expedição no CLP.
-            boolean expedicaoEnviada = enviarExpedicaoAtualParaClp(ipClpExpedicao);
+            // Agora sim escreve SOMENTE a posição finalizada no CLP.
+            // Não enviamos mais o bloco inteiro de 24 bytes, para não sobrescrever outras posições já existentes.
+            boolean expedicaoEnviada = enviarPosicaoExpedicaoParaClp(ipClpExpedicao, posExpedicao, idPedido.intValue());
             if (!expedicaoEnviada) {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                        .body("Pedido finalizado no banco, mas falhou ao gravar a expedição no CLP " + ipClpExpedicao + ".");
+                        .body("Pedido finalizado no banco, mas falhou ao gravar a posição " + posExpedicao
+                                + " no CLP " + ipClpExpedicao + ".");
             }
 
             posicoesExpedicaoPedidos.remove(idPedido);
             SmartService.pedidoEmCurso = false;
             SmartService.statusProducao = 1;
 
-            return ResponseEntity.ok("Pedido " + idPedido + " finalizado e expedição gravada no CLP.");
+            return ResponseEntity.ok("Pedido " + idPedido + " finalizado e posição " + posExpedicao
+                    + " gravada no CLP de Expedição.");
         } catch (Exception e) {
             e.printStackTrace();
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -233,6 +236,34 @@ public class SmartController {
             return true;
         } catch (Exception e) {
             System.out.println("ERRO: falha ao iniciar execução do pedido no CLP de Estoque.");
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    private boolean enviarPosicaoExpedicaoParaClp(String ipClpExpedicao, int posExpedicao, int orderNumber) {
+        if (SmartService.readOnly) {
+            return true;
+        }
+
+        if (posExpedicao < 1 || posExpedicao > 12) {
+            System.out.println("Posição de expedição inválida para escrita pontual: " + posExpedicao);
+            return false;
+        }
+
+        PlcConnector plcConnector = PlcConnectionManager.getConexao(ipClpExpedicao);
+        if (plcConnector == null) {
+            return false;
+        }
+
+        int offset = 6 + ((posExpedicao - 1) * 2);
+        try {
+            System.out.println("Gravando apenas a posição " + posExpedicao + " da Expedição no CLP. Offset DB9:"
+                    + offset + " OP:" + orderNumber);
+            plcConnector.writeInt(9, offset, orderNumber);
+            return true;
+        } catch (Exception e) {
+            System.out.println("ERRO: falha ao gravar posição pontual da Expedição no CLP.");
             e.printStackTrace();
             return false;
         }
