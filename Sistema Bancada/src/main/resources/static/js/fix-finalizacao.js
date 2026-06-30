@@ -125,12 +125,34 @@
             .then(async response => {
                 const texto = await response.text();
                 if (!response.ok) {
-                    console.error("Erro ao corrigir duplicidade da expedição:", texto);
-                    return;
+                    console.error("Erro ao reconciliar expedição:", texto);
+                    return false;
                 }
-                console.log(texto || "Duplicidade da expedição corrigida.");
+                console.log(texto || "Expedição reconciliada.");
+                return true;
             })
-            .catch(err => console.error("Erro na correção de duplicidade da expedição:", err));
+            .catch(err => {
+                console.error("Erro na reconciliação da expedição:", err);
+                return false;
+            });
+    }
+
+    function agendarReconciliacoesExpedicao(pedidoId, posicaoExpedicao, ipExpedicao) {
+        const delays = [900, 2500, 4500];
+        let concluidas = 0;
+
+        delays.forEach(delay => {
+            setTimeout(() => {
+                corrigirDuplicidadeExpedicao(pedidoId, posicaoExpedicao, ipExpedicao)
+                    .finally(() => {
+                        concluidas++;
+                        if (concluidas === delays.length) {
+                            limparPedidoAtualFinalizado();
+                            atualizarVisualExpedicaoDepois();
+                        }
+                    });
+            }, delay);
+        });
     }
 
     function finalizarPedidoCorrigido() {
@@ -187,15 +209,9 @@
 
                 console.log(texto || "Pedido finalizado e expedição gravada no CLP.");
 
-                // Aguarda um pequeno intervalo porque o SmartService também lê os sinais do CLP.
-                // Se ele tentou escrever a mesma OP em outra posição, este endpoint restaura só essa duplicidade.
-                setTimeout(() => {
-                    corrigirDuplicidadeExpedicao(pedidoId, posicaoExpedicao, ipExpedicao)
-                        .finally(() => {
-                            limparPedidoAtualFinalizado();
-                            atualizarVisualExpedicaoDepois();
-                        });
-                }, 900);
+                // A rotina antiga do service ainda pode reagir aos bits do CLP por alguns segundos.
+                // Por isso reconciliamos mais de uma vez, mantendo apenas a posição selecionada com o pedido novo.
+                agendarReconciliacoesExpedicao(pedidoId, posicaoExpedicao, ipExpedicao);
             })
             .catch(err => {
                 console.error("Erro ao finalizar pedido:", err);
