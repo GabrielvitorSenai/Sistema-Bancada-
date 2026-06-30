@@ -5,7 +5,9 @@ import java.nio.ByteOrder;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -22,14 +24,18 @@ import com.tecdes.sistema_bancada.dto.LaminaDTO;
 import com.tecdes.sistema_bancada.dto.PedidoDTO;
 import com.tecdes.sistema_bancada.model.Estoque;
 import com.tecdes.sistema_bancada.model.Expedicao;
+import com.tecdes.sistema_bancada.model.Pedido;
 import com.tecdes.sistema_bancada.repository.EstoqueRepository;
 import com.tecdes.sistema_bancada.repository.ExpedicaoRepository;
+import com.tecdes.sistema_bancada.repository.PedidoRepository;
 import com.tecdes.sistema_bancada.service.PlcConnector;
 import com.tecdes.sistema_bancada.service.SmartService;
 import com.tecdes.sistema_bancada.service.SmartService.PlcConnectionManager;
 
 @RestController
 public class SmartController {
+
+    private final Map<Long, Integer> posicoesExpedicaoPedidos = new ConcurrentHashMap<>();
 
     @Autowired
     private SmartService smartService;
@@ -39,6 +45,9 @@ public class SmartController {
 
     @Autowired
     private ExpedicaoRepository expedicaoRepository;
+
+    @Autowired
+    private PedidoRepository pedidoRepository;
 
     @PostMapping("/iniciar-pedido")
     public ResponseEntity<String> iniciarPedido(@RequestBody PedidoDTO pedidoDTO) {
@@ -61,7 +70,7 @@ public class SmartController {
         System.out.println("Iniciando pedido ID: " + idPedido);
         System.out.println("Pedido recebido para IP do CLP: " + ipClp);
         System.out.println("Pedido tipo: " + tipo);
-        System.out.println("Posição de expedição (guardar): " + posExpedicao);
+        System.out.println("Posição de expedição (guardar ao finalizar): " + posExpedicao);
         System.out.println("Cor da tampa: " + (tampa == 1 ? "Preto" : tampa == 2 ? "Vermelho" : "Azul"));
 
         for (BlocoDTO bloco : pedido) {
@@ -116,32 +125,13 @@ public class SmartController {
                         .body("Erro ao comunicar com o seletor de tampas: " + e.getMessage());
             }
 
-            // 3) Reserva no banco exatamente a posição escolhida/enviada no pedido.
-            int orderNumber = (idPedido != null) ? idPedido.intValue() : 0;
-            Expedicao exp = expedicaoRepository.findByPosicaoExpedicao(posExpedicao)
-                    .orElseGet(Expedicao::new);
-            exp.setPosicaoExpedicao(posExpedicao);
-            exp.setOrderNumber(orderNumber);
-            expedicaoRepository.save(exp);
-            System.out.println("Expedição: posição " + posExpedicao + " reservada para o pedido " + orderNumber);
-
-            // 4) Grava imediatamente a tabela da expedição na memória do CLP de Expedição.
-            // Antes isso só acontecia ao conectar/reconectar a bancada, por isso o F5 fazia aparecer.
-            String ipExpedicao = resolverIpExpedicao(ipClp);
-            if (ipExpedicao == null) {
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                        .body("Erro: não foi possível descobrir o IP do CLP de Expedição a partir do IP do Estoque.");
+            // 3) Guarda a posição escolhida apenas em memória para usar na finalização.
+            // Não grava a Expedição no banco/CLP aqui, porque o produto ainda não terminou.
+            if (idPedido != null) {
+                posicoesExpedicaoPedidos.put(idPedido, posExpedicao);
             }
 
-            boolean expedicaoEnviada = enviarExpedicaoAtualParaClp(ipExpedicao);
-            if (!expedicaoEnviada) {
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                        .body("Erro: pedido salvo no banco, mas falhou ao gravar a expedição no CLP " + ipExpedicao + ".");
-            }
-
-            // 5) Inicia o pedido sem recalcular a posição de expedição.
-            // Antes o service chamava buscarPrimeiraPosicaoLivreExp() de novo e podia escolher outra posição,
-            // porque a posição correta já tinha sido reservada no banco.
+            // 4) Inicia o pedido sem recalcular a posição de expedição.
             boolean inicioOk = iniciarExecucaoPedidoNaPosicao(ipClp, posExpedicao);
             if (!inicioOk) {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
@@ -157,6 +147,62 @@ public class SmartController {
             e.printStackTrace();
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body("Erro ao processar pedido: " + e.getMessage());
+        }
+    }
+
+    @PostMapping("/finalizar-pedido-producao")
+    public ResponseEntity<String> finalizarPedidoProducao(@RequestBody PedidoDTO pedidoDTO) {
+        Long idPedido = pedidoDTO.getId();
+        if (idPedido == null) {
+            return ResponseEntity.badRequest().body("ID do pedido não informado para finalização.");
+        }
+
+        int posExpedicao = pedidoDTO.getPosicaoExpedicao();
+        if (posExpedicao < 1 || posExpedicao > 12) {
+            posExpedicao = posicoesExpedicaoPedidos.getOrDefault(idPedido, SmartService.posicaoExpedicaoSolicitada);
+        }
+
+        if (posExpedicao < 1 || posExpedicao > 12) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body("Posição de expedição inválida para finalizar o pedido " + idPedido + ".");
+        }
+
+        String ipClpExpedicao = pedidoDTO.getIpClp();
+        if (ipClpExpedicao == null || ipClpExpedicao.isBlank()) {
+            return ResponseEntity.badRequest().body("IP do CLP de Expedição não informado para finalização.");
+        }
+
+        try {
+            Optional<Pedido> pedidoOptional = pedidoRepository.findById(idPedido);
+            if (pedidoOptional.isPresent()) {
+                Pedido pedido = pedidoOptional.get();
+                pedido.setStatusOrderProduction("concluido");
+                pedidoRepository.save(pedido);
+            }
+
+            // Agora sim grava a expedição no banco, porque o pedido terminou.
+            Expedicao exp = expedicaoRepository.findByPosicaoExpedicao(posExpedicao)
+                    .orElseGet(Expedicao::new);
+            exp.setPosicaoExpedicao(posExpedicao);
+            exp.setOrderNumber(idPedido.intValue());
+            expedicaoRepository.save(exp);
+
+            // Agora sim escreve a tabela da expedição no CLP.
+            boolean expedicaoEnviada = enviarExpedicaoAtualParaClp(ipClpExpedicao);
+            if (!expedicaoEnviada) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body("Pedido finalizado no banco, mas falhou ao gravar a expedição no CLP " + ipClpExpedicao + ".");
+            }
+
+            posicoesExpedicaoPedidos.remove(idPedido);
+            SmartService.pedidoEmCurso = false;
+            SmartService.statusProducao = 1;
+
+            return ResponseEntity.ok("Pedido " + idPedido + " finalizado e expedição gravada no CLP.");
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body("Erro ao finalizar pedido: " + e.getMessage());
         }
     }
 
@@ -190,20 +236,6 @@ public class SmartController {
             e.printStackTrace();
             return false;
         }
-    }
-
-    private String resolverIpExpedicao(String ipClpEstoque) {
-        if (ipClpEstoque == null || ipClpEstoque.isBlank()) {
-            return null;
-        }
-
-        String[] partes = ipClpEstoque.trim().split("\\.");
-        if (partes.length != 4) {
-            return null;
-        }
-
-        // Padrão usado no front: Estoque .10, Processo .20, Montagem .30, Expedição .40.
-        return partes[0] + "." + partes[1] + "." + partes[2] + ".40";
     }
 
     private boolean enviarExpedicaoAtualParaClp(String ipClpExpedicao) {
