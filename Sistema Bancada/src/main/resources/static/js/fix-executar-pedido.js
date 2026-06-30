@@ -22,6 +22,19 @@
         return match ? parseInt(match[1]) : null;
     }
 
+    function capturarSnapshotExpedicao() {
+        const snapshot = {};
+
+        for (let i = 1; i <= 12; i++) {
+            const celula = document.getElementById(`expedicao-${i}`);
+            const valor = parseInt(celula?.textContent || "0") || 0;
+            snapshot[String(i)] = valor;
+        }
+
+        sessionStorage.setItem("expedicaoSnapshotAntesPedido", JSON.stringify(snapshot));
+        return snapshot;
+    }
+
     async function executarPedidoCorrigido() {
         const tipo = document.getElementById("tipoPedido")?.value;
         const tampa = document.getElementById("corTampa")?.value;
@@ -83,6 +96,8 @@
             sessionStorage.removeItem("posicaoExpedicaoAtual");
         }
 
+        capturarSnapshotExpedicao();
+
         const pedidoDTO = {
             id: pedidoId,
             tipo: tipo,
@@ -106,6 +121,7 @@
                 sessionStorage.removeItem("pedidoIdAtual");
                 sessionStorage.removeItem("posicaoExpedicaoAtual");
                 sessionStorage.removeItem("pedidoEmCurso");
+                sessionStorage.removeItem("expedicaoSnapshotAntesPedido");
                 return false;
             }
 
@@ -118,6 +134,7 @@
             sessionStorage.removeItem("pedidoIdAtual");
             sessionStorage.removeItem("posicaoExpedicaoAtual");
             sessionStorage.removeItem("pedidoEmCurso");
+            sessionStorage.removeItem("expedicaoSnapshotAntesPedido");
             return false;
         }
     }
@@ -138,6 +155,7 @@
         sessionStorage.removeItem("pedidoEmCurso");
         sessionStorage.removeItem("pedidoIdAtual");
         sessionStorage.removeItem("posicaoExpedicaoAtual");
+        sessionStorage.removeItem("expedicaoSnapshotAntesPedido");
 
         fetch("/smart/reset-status", { method: "POST" })
             .then(response => {
