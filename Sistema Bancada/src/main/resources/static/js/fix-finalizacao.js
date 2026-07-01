@@ -84,8 +84,6 @@
     }
 
     function limparPedidoAtualFinalizado(pedidoId) {
-        // Se um novo pedido já foi iniciado enquanto as reconciliações rodavam,
-        // não apaga os dados dele.
         const idAtual = parseInt(sessionStorage.getItem("pedidoIdAtual"));
         if (idAtual && pedidoId && idAtual !== pedidoId) return;
 
@@ -96,47 +94,11 @@
         window.posicaoExpedicaoFinalizadaDetectada = null;
     }
 
-    function corrigirDuplicidadeExpedicao(pedidoId, posicaoExpedicao, ipExpedicao) {
-        return fetch("/expedicao/corrigir-duplicidade", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                pedidoId: pedidoId,
-                posicaoCorreta: posicaoExpedicao,
-                ipClp: ipExpedicao
-            })
-        })
-            .then(async response => {
-                const texto = await response.text();
-                if (!response.ok) {
-                    console.error("Erro ao reconciliar expedição:", texto);
-                    return false;
-                }
-                console.log(texto || "Expedição reconciliada.");
-                return true;
-            })
-            .catch(err => {
-                console.error("Erro na reconciliação da expedição:", err);
-                return false;
-            });
-    }
-
-    function agendarReconciliacoesExpedicao(pedidoId, posicaoExpedicao, ipExpedicao) {
-        const delays = [900, 2500, 4500, 8000, 15000, 30000];
-        let concluidas = 0;
-
-        delays.forEach(delay => {
-            setTimeout(() => {
-                corrigirDuplicidadeExpedicao(pedidoId, posicaoExpedicao, ipExpedicao)
-                    .finally(() => {
-                        concluidas++;
-                        if (concluidas === delays.length) {
-                            limparPedidoAtualFinalizado(pedidoId);
-                            atualizarVisualExpedicaoDepois();
-                        }
-                    });
-            }, delay);
-        });
+    function finalizarLimpezaLocal(pedidoId) {
+        // Não chama mais /expedicao/corrigir-duplicidade, porque o controller foi removido.
+        // A finalização oficial fica concentrada no /finalizar-pedido-producao.
+        limparPedidoAtualFinalizado(pedidoId);
+        atualizarVisualExpedicaoDepois();
     }
 
     function finalizarPedidoCorrigido() {
@@ -187,7 +149,7 @@
                 }
 
                 console.log(texto || "Pedido finalizado e expedição gravada no banco.");
-                agendarReconciliacoesExpedicao(pedidoId, posicaoExpedicao, ipExpedicao || "");
+                finalizarLimpezaLocal(pedidoId);
             })
             .catch(err => {
                 console.error("Erro ao finalizar pedido:", err);
@@ -260,7 +222,6 @@
         }
     }
 
-    // Este arquivo carrega depois de smart.js, então a instalação é direta:
     window.finalizarPedido = finalizarPedidoCorrigido;
 
     const processarOriginal = window.processarDadosClp;
