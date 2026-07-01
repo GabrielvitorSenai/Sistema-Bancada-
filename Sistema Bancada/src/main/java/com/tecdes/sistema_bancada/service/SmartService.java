@@ -1063,17 +1063,28 @@ public class SmartService {
                             "ERRO [Adicionar Expedição]: Atualização da Flag RecebidoExpedicao [DB9:2.0] para TRUE");
                 }
 
-                int offset = 6 + (posicaoGuardarExp - 1) * 2;
-                System.out.println("Guardando Operacao em posicaoGuardarExp: " + posicaoGuardarExp);
-                if (posicaoGuardarExp > 0) {
+                // Usa a posição realmente selecionada na execução do pedido (autoritativa),
+                // em vez do valor cru do CLP (DB9:4 -> posicaoGuardarExp), que pode estar defasado
+                // em 1 e gravar uma linha diferente do fluxo novo, gerando a posição duplicada.
+                // Como os dois caminhos fazem upsert por posição (findByPosicaoExpedicao), gravar
+                // sempre a mesma posição torna o upsert idempotente.
+                int posicaoAutoritativa = posicaoExpedicaoSolicitada;
+                System.out.println("Guardando Operacao em posicaoAutoritativa: " + posicaoAutoritativa);
+                if (posicaoAutoritativa < 1 || posicaoAutoritativa > 12) {
+                    // Blinda contra valor inválido para nunca cair na posição 1 por engano.
+                    System.out.println("ERRO [Adicionar Expedição]: posicaoExpedicaoSolicitada inválida ("
+                            + posicaoAutoritativa + "). Ignorando gravação legada para não duplicar.");
+                } else {
+                    int offset = 6 + (posicaoAutoritativa - 1) * 2;
                     try {
-                        plcConnectorExp.writeInt(9, offset, opGuardadoExpedicao); // grava operação no CLP
+                        plcConnectorExp.writeInt(9, offset, opGuardadoExpedicao); // grava OP no CLP na posição correta
 
                         // === CHAMAR ENDPOINT /expedicao/salvar PARA ATUALIZAR NO BANCO ===
+                        // usando a MESMA posição do fluxo novo
                         RestTemplate restTemplate = new RestTemplate();
 
                         Map<String, Integer> dadosExp = new HashMap<>();
-                        dadosExp.put("OP:" + posicaoGuardarExp, opGuardadoExpedicao); // exemplo: "OP:3" → valor da ordem
+                        dadosExp.put("OP:" + posicaoAutoritativa, opGuardadoExpedicao); // exemplo: "OP:3" → valor da ordem
 
                         HttpHeaders headers = new HttpHeaders();
                         headers.setContentType(MediaType.APPLICATION_JSON);
