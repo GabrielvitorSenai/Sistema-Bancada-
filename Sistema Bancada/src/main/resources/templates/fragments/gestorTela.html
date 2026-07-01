@@ -448,25 +448,8 @@
             });
         }
 
-        // Função para apresentar dados no gestor do magazine de expedição
-        async function carregarValoresExpedicao() {
-            console.log("Carregar valores Expedição");
-            try {
-                const response = await fetch("/pedidos-expedicao");
-                const data = await response.json();
-
-                const expedicaoInputs = document.querySelectorAll(".grid.expedicao .input-expedicao");
-
-                expedicaoInputs.forEach((input, index) => {
-                    const pos = "P" + (index + 1);
-                    if (data[pos] !== undefined) {
-                        input.value = "OP:" + data[pos];
-                    }
-                });
-            } catch (erro) {
-                console.error("Erro ao carregar valores:", erro);
-            }
-        }
+        // A função carregarValoresExpedicao é definida em smart.js e atualiza,
+        // além dos inputs desta tela, a grade da Linha e o select da Loja.
 
         // Função para atualizar a tabela Estoque na base de dados
         async function updateEstoque() {
@@ -512,15 +495,6 @@
                 }
             });
 
-            // Captura o IP do CLP do input com id="hostIpExpedicao"
-            const ipClp = document.getElementById("hostIpExpedicao").value.trim();
-
-            // Monta o objeto com dados e IP
-            const dadosComIp = {
-                ip: ipClp,
-                dados: payload
-            };
-
             try {
                 const response = await fetch("/expedicao/salvar", {
                     method: "POST",
@@ -530,6 +504,7 @@
 
                 if (response.ok) {
                     alert("Expedição atualizada com sucesso!");
+                    carregarValoresExpedicao(); // reflete o que foi salvo em todas as telas
                 } else {
                     alert("Erro ao atualizar expedição.");
                 }

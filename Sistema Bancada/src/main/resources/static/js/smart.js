@@ -392,18 +392,9 @@ function processarDadosClp(clp, data) {
             }
 
 
-            recebidoOpExp = (byteArray[0] & 0b00000001) !== 0;
-            finishOpExp = (byteArray[32] & 0b00000010) !== 0;
-
-            // Fim da operação: expedição recebeu E finalizou, OU todas as estações concluídas (status 2)
-            const todasConcluidas =
-                (statusEstoque == 2 && statusProcesso == 2 && statusMontagem == 2 && statusExpedicao == 2);
-
-            if ((recebidoOpExp && finishOpExp) || todasConcluidas) {
-                finalizarPedido(); // one-shot (protegido por pedidoFinalizado)
-            }
-
-
+            // A detecção de fim de operação é feita pelo observador instalado em
+            // fix-finalizacao.js (detectarFinalizacaoPeloClp4 + verificação por status),
+            // que chama finalizarPedido() de forma one-shot.
 
             atualizarCampoBooleano("var4-1", (byteArray[0] & 0b00000001) !== 0);
             atualizarCampoBooleano("var4-2", (byteArray[2] & 0b00000001) !== 0);
@@ -678,10 +669,15 @@ window.addEventListener('load', () => {
     }
 });
 
-// Obtém o ID do pedido em curso (definido na execução, em window.pedidoIdAtual;
-// fallback: lê do elemento #pedido-id da tela da Loja).
+// Obtém o ID do pedido em curso, na ordem: variável definida na execução,
+// sessionStorage (sobrevive à troca/recarga de tela) e, por fim, o elemento
+// #pedido-id da tela da Loja.
 function obterPedidoIdAtual() {
     if (window.pedidoIdAtual) return window.pedidoIdAtual;
+
+    const idSession = parseInt(sessionStorage.getItem("pedidoIdAtual"));
+    if (idSession) return idSession;
+
     const el = document.getElementById("pedido-id");
     if (el) {
         const m = el.innerText.match(/#(\d+)/);
@@ -690,109 +686,50 @@ function obterPedidoIdAtual() {
     return null;
 }
 
-// Fecha o ciclo do pedido quando a operação termina:
-// 1) para o contador e marca como concluído na tela
-// 2) marca o pedido como "concluido" no banco
-// 3) salva a expedição no CLP (posição onde o pedido ficou)
-function finalizarPedido() {
-    if (pedidoFinalizado) return; // já finalizado neste ciclo
-    pedidoFinalizado = true;
+// Carrega as posições salvas da expedição (banco) e atualiza a interface:
+// - inputs do Magazine de Expedição na tela Gestão;
+// - grade da expedição na tela Linha;
+// - select "Guardar na Expedição" da tela Loja (marca posições ocupadas).
+async function carregarValoresExpedicao() {
+    console.log("Carregar valores Expedição");
+    try {
+        const response = await fetch("/pedidos-expedicao", { cache: "no-store" });
+        const data = await response.json();
 
-    // 1) Para o contador e marca conclusão na tela
-    pedidoConcluido = true;
-    pedidoEmCurso = false;
-    pararContador();
-    const btn = document.getElementById("btnExecutarPedidoProducao");
-    if (btn) btn.textContent = "Pedido concluido";
+        const expedicaoInputs = document.querySelectorAll(".grid.expedicao .input-expedicao");
+        expedicaoInputs.forEach((input, index) => {
+            const valor = parseInt(data[`P${index + 1}`]) || 0;
+            input.value = "OP:" + valor;
+        });
 
-    // 2) Marca o pedido como concluído no banco
-    const pedidoId = obterPedidoIdAtual();
-    if (pedidoId) {
-        fetch("/salvar-pedido/status", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id: pedidoId, statusOrderProduction: "concluido" })
-        })
-            .then(r => console.log("Pedido " + pedidoId + " concluído no banco:", r.ok))
-            .catch(err => console.error("Erro ao concluir pedido:", err));
-    } else {
-        console.warn("finalizarPedido: ID do pedido não encontrado para marcar como concluído.");
-    }
+        for (let i = 1; i <= 12; i++) {
+            const celula = document.getElementById(`expedicao-${i}`);
+            if (!celula) continue;
+            const valor = parseInt(data[`P${i}`]) || 0;
+            celula.textContent = valor;
+            celula.style.backgroundColor = valor === 0 ? "#ccffcc" : "#ffcccc";
+            celula.style.color = "black";
+        }
 
-    // 3) Salva a expedição no CLP (grava a posição onde o pedido ficou)
-    const ipExpedicao = document.getElementById("hostIpExpedicao")?.value;
-    if (ipExpedicao) {
-        fetch("/clp/enviar-expedicao", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ipClp: ipExpedicao })
-        })
-            .then(r => console.log("Expedição salva no CLP:", r.ok))
-            .catch(err => console.error("Erro ao salvar expedição no CLP:", err));
-    } else {
-        console.warn("finalizarPedido: IP do CLP de Expedição não informado.");
+        const select = document.getElementById("posExpedicao");
+        if (select) {
+            for (const option of select.options) {
+                const pos = parseInt(option.value);
+                if (!pos || pos < 1 || pos > 12) continue;
+                const valor = parseInt(data[`P${pos}`]) || 0;
+                option.textContent = valor > 0 ? `Posição ${pos} (OP:${valor})` : `Posição ${pos}`;
+                option.disabled = valor > 0;
+            }
+        }
+
+        return data;
+    } catch (erro) {
+        console.error("Erro ao carregar valores da expedição:", erro);
+        return null;
     }
 }
 
-function fases(fase) {
-
-    if (fase == 1) {
-
-        if (document.getElementById("btnExecutarPedidoProducao").textContent === "Executar Pedido") {
-            if (!modoLeitura) {
-                iniciarContador();
-                executarPedido();
-                document.getElementById("btnExecutarPedidoProducao").textContent = "Pedido em curso";
-            }
-
-        } else if (document.getElementById("btnExecutarPedidoProducao").textContent === "Pedido concluido") {
-
-            document.getElementById("btnExecutarPedidoProducao").textContent = "Executar Pedido";
-            statusEstoque = 0;
-            statusProcesso = 0;
-            statusMontagem = 0;
-            statusExpedicao = 0;
-            pedidoEmcurso = false;
-
-            // Chamada ao backend para zerar também os status lá
-            fetch('/smart/reset-status', {
-                method: 'POST'
-            })
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error('Erro ao resetar status no backend');
-                    }
-                    return response.text();
-                })
-                .then(data => {
-                    console.log('Backend:', data);
-                })
-                .catch(error => {
-                    console.error('Erro na chamada ao backend:', error);
-                });
-            if (!modoLeitura) {
-                carregarValoresEstoque();
-                carregarValoresExpedicao();
-            }
-        }
-    } else if (fase == 2) {
-
-        pararContador();
-    } else if (fase == 3) {
-        statusMontagem++;
-        if (statusMontagem > 2) {
-            statusMontagem = 0;
-        }
-
-    } else if (fase == 4) {
-        statusExpedicao++;
-        if (statusExpedicao > 2) {
-            statusExpedicao = 0;
-        }
-    }
-
-}
-
-
+// As funções executarPedido/fases/finalizarPedido são definidas em
+// fix-executar-pedido.js e fix-finalizacao.js, carregados após este arquivo.
 
 window.onload = renderBlocos;
