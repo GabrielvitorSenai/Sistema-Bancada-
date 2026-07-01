@@ -40,28 +40,6 @@
         }
     }
 
-    function obterPedidoIdAtualSeguro() {
-        try {
-            if (typeof obterPedidoIdAtual === "function") {
-                const id = obterPedidoIdAtual();
-                if (id) return id;
-            }
-        } catch (e) {
-            console.warn("Falha ao usar obterPedidoIdAtual:", e);
-        }
-
-        if (window.pedidoIdAtual) return window.pedidoIdAtual;
-
-        const idSession = parseInt(sessionStorage.getItem("pedidoIdAtual"));
-        if (idSession) return idSession;
-
-        const el = document.getElementById("pedido-id");
-        if (!el) return null;
-
-        const match = el.innerText.match(/#(\d+)/);
-        return match ? parseInt(match[1]) : null;
-    }
-
     function obterPosicaoExpedicaoSelecionada() {
         const posSession = parseInt(sessionStorage.getItem("posicaoExpedicaoAtual"));
         if (posSession) return posSession;
@@ -158,7 +136,7 @@
     function finalizarPedidoCorrigido() {
         if (typeof pedidoFinalizado !== "undefined" && pedidoFinalizado) return;
 
-        const pedidoId = obterPedidoIdAtualSeguro();
+        const pedidoId = obterPedidoIdAtual();
         const ipExpedicao = document.getElementById("hostIpExpedicao")?.value;
         const posicaoExpedicao = obterPosicaoExpedicaoSelecionada();
 
@@ -220,21 +198,12 @@
             });
     }
 
-    function instalarFinalizacaoCorrigida() {
-        if (typeof finalizarPedido !== "function") return false;
-        if (finalizarPedido.__fixFinalizacaoInstalado) return true;
-
-        finalizarPedido = finalizarPedidoCorrigido;
-        finalizarPedido.__fixFinalizacaoInstalado = true;
-        return true;
-    }
-
     function detectarFinalizacaoPeloClp4(data) {
         try {
             if (!pedidoEstaEmCursoNaTela()) return;
             if (typeof pedidoFinalizado !== "undefined" && pedidoFinalizado) return;
 
-            const pedidoId = obterPedidoIdAtualSeguro();
+            const pedidoId = obterPedidoIdAtual();
             if (!pedidoId) return;
 
             const byteArray = bytesHexParaArray(data);
@@ -291,25 +260,8 @@
         }
     }
 
-    function instalarObservadorClp4() {
-        if (typeof processarDadosClp !== "function") return false;
-        if (processarDadosClp.__fixFinalizacaoClp4Instalado) return true;
-
-        const processarOriginal = processarDadosClp;
-        processarDadosClp = function (clp, data) {
-            processarOriginal.apply(this, arguments);
-            if (clp === "clp4") {
-                detectarFinalizacaoPeloClp4(data);
-            }
-        };
-
-        processarDadosClp.__fixFinalizacaoClp4Instalado = true;
-        return true;
-    }
-
     function tentarFinalizarPedido() {
         try {
-            if (typeof finalizarPedido !== "function") return;
             if (typeof pedidoFinalizado !== "undefined" && pedidoFinalizado) return;
 
             if (podeFinalizarPorStatus()) {
@@ -321,13 +273,18 @@
         }
     }
 
-    const setupInterval = setInterval(() => {
-        const okFinalizacao = instalarFinalizacaoCorrigida();
-        const okClp4 = instalarObservadorClp4();
-        if (okFinalizacao && okClp4) {
-            clearInterval(setupInterval);
+    // Este arquivo carrega depois de smart.js, então a instalação é direta:
+    // finalizarPedido passa a ser a versão corrigida e o processamento do CLP4
+    // ganha o observador de finalização.
+    window.finalizarPedido = finalizarPedidoCorrigido;
+
+    const processarOriginal = window.processarDadosClp;
+    window.processarDadosClp = function (clp, data) {
+        processarOriginal.apply(this, arguments);
+        if (clp === "clp4") {
+            detectarFinalizacaoPeloClp4(data);
         }
-    }, 300);
+    };
 
     setInterval(tentarFinalizarPedido, 700);
 })();

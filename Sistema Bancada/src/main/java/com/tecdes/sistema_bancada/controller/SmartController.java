@@ -172,6 +172,10 @@ public class SmartController {
             return ResponseEntity.badRequest().body("IP do CLP de Expedição não informado para finalização.");
         }
 
+        // Mantém o estado compartilhado apontando para a mesma posição usada aqui,
+        // para que nenhum outro fluxo trabalhe com uma posição divergente.
+        SmartService.posicaoExpedicaoSolicitada = posExpedicao;
+
         try {
             Optional<Pedido> pedidoOptional = pedidoRepository.findById(idPedido);
             if (pedidoOptional.isPresent()) {
