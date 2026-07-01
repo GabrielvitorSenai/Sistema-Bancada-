@@ -17,6 +17,7 @@ import org.springframework.web.client.RestTemplate;
 
 import com.tecdes.sistema_bancada.config.ApiUrlConfig;
 import com.tecdes.sistema_bancada.model.Estoque;
+import com.tecdes.sistema_bancada.model.Expedicao;
 import com.tecdes.sistema_bancada.repository.EstoqueRepository;
 import com.tecdes.sistema_bancada.repository.ExpedicaoRepository;
 
@@ -37,6 +38,7 @@ public class SmartService {
 
     public static int posicaoEstoqueSolicitada = 0;
     public static int posicaoExpedicaoSolicitada = 0;
+    public static int pedidoAtualId = 0;
 
     public static boolean blockFinished = false;
 
@@ -301,24 +303,6 @@ public class SmartService {
     //*************************************************************
     // Função para envio de bloco de bytes ao CLP
     //*************************************************************
-    // public void enviarBlocoBytesAoClp(String ipClp, int db, int offset, byte[] dados, int size) throws Exception {
-    //     // Use o IP e porta corretos do CLP de destino
-    //     // Imprime os dados em hexadecimal antes do envio
-    //     // System.out.println("Enviando dados para o CLP " + ipClp + " (offset: " + offset + ", size: " + size + "):");
-    //     // System.out.print("Bytes em hexadecimal: ");
-    //     for (int i = 0; i < size; i++) {
-    //         // System.out.printf("%02X ", dados[i]);
-    //     }
-    //     System.out.println(); // quebra de linha final
-    //     PlcConnector plcConnector = PlcConnectionManager.getConexao(ipClp);
-    //     if (plcConnector == null) {
-    //         return;
-    //     }
-    //     if (readOnly == false) {
-    //         System.out.println(" Aqui em: enviarBlocoBytesAoClp");
-    //         plcConnector.writeBlock(db, offset, size, dados); // escreve no bloco de dados
-    //     }
-    // }
     public boolean enviarBlocoBytesAoClp(String ipClp, int db, int offset, byte[] dados, int size) {
         PlcConnector plcConnector = PlcConnectionManager.getConexao(ipClp);
         if (plcConnector == null) {
@@ -336,55 +320,6 @@ public class SmartService {
         }
         // se for readOnly ou nada a fazer, considere sucesso
         return true;
-    }
-
-    //*************************************************************
-    // Função para iniciar a Execução do pedido
-    //*************************************************************
-    public void iniciarExecucaoPedido(String ipClp) {
-
-        // Etapas a desenvolver:
-        // 1 - ATUALIZAR O PRÓXIMO NÚMERO DE PEDIDO
-        // MainFrame.posExpedArray[12] = MainFrame.posExpedArray[12] + 1;
-        // int orderProduction = obterProximoPedido();
-        //PlcConnector plcConnector = new PlcConnector(ipClp, 102); // ajuste o IP se necessário
-        if (!readOnly) {
-
-            PlcConnector plcConnector = PlcConnectionManager.getConexao(ipClp);
-            if (plcConnector == null) {
-                return;
-            }
-
-            posicaoExpedicaoSolicitada = buscarPrimeiraPosicaoLivreExp();
-
-            try {
-
-                // Inicializa as flags da estação ESTOQUE
-                //plcConnector.connect();
-                plcConnector.writeBit(9, 0, 0, Boolean.parseBoolean("FALSE"));
-                plcConnector.writeBit(9, 64, 0, Boolean.parseBoolean("FALSE"));
-                plcConnector.writeBit(9, 64, 1, Boolean.parseBoolean("FALSE"));
-                plcConnector.writeBit(9, 62, 0, Boolean.parseBoolean("FALSE"));
-
-                // plcConnector.writeBit(9, 62, 0, Boolean.parseBoolean("FALSE"));
-                // Iniciar pedido
-                System.out.println("INICIAR PEDIDO 2");
-                plcConnector.writeBit(9, 62, 0, Boolean.parseBoolean("TRUE"));
-
-            } catch (Exception ex) {
-
-            }
-        }
-        // Setar flag de PEDIDO EM CURSO
-
-        // 1 - ATUALIZAR O PRÓXIMO NÚMERO DE PEDIDO (Verificar se é necessário)
-        // MainFrame.posExpedArray[12] = MainFrame.posExpedArray[12] + 1;
-        // try {
-        //     plcConnector.disconnect();
-        // } catch (Exception e) {
-        //     // TODO Auto-generated catch block
-        //     e.printStackTrace();
-        // }
     }
 
     //*****************************************************************************
@@ -1051,11 +986,9 @@ public class SmartService {
         if ((adicionarExpedicao == true) & aux_expedicao == false) {
             aux_expedicao = true;
 
-            // Ler as variáveis PosicaoGuardadoExpedicao e opGuardadoExpedicao
             if (readOnly == false) {
 
                 try {
-                    // Panel3.plcWrite = new PlcConnector(ipExpedicao, 9, 2, 1, 0, 1);
                     plcConnectorExp.writeBit(9, 2, 0, Boolean.parseBoolean("TRUE")); // coloca RecebidoExpedicao em TRUE
 
                 } catch (Exception e) {
@@ -1063,46 +996,25 @@ public class SmartService {
                             "ERRO [Adicionar Expedição]: Atualização da Flag RecebidoExpedicao [DB9:2.0] para TRUE");
                 }
 
-                // Usa a posição realmente selecionada na execução do pedido (autoritativa),
-                // em vez do valor cru do CLP (DB9:4 -> posicaoGuardarExp), que pode estar defasado
-                // em 1 e gravar uma linha diferente do fluxo novo, gerando a posição duplicada.
-                // Como os dois caminhos fazem upsert por posição (findByPosicaoExpedicao), gravar
-                // sempre a mesma posição torna o upsert idempotente.
-                int posicaoAutoritativa = posicaoExpedicaoSolicitada;
-                System.out.println("Guardando Operacao em posicaoAutoritativa: " + posicaoAutoritativa);
-                if (posicaoAutoritativa < 1 || posicaoAutoritativa > 12) {
-                    // Blinda contra valor inválido para nunca cair na posição 1 por engano.
-                    System.out.println("ERRO [Adicionar Expedição]: posicaoExpedicaoSolicitada inválida ("
-                            + posicaoAutoritativa + "). Ignorando gravação legada para não duplicar.");
-                } else {
-                    int offset = 6 + (posicaoAutoritativa - 1) * 2;
+                // Rede de segurança da persistência: se o CLP confirmou a guarda da OP do
+                // pedido EM CURSO e a finalização ainda não gravou no banco, grava aqui na
+                // MESMA posição selecionada na execução. OPs que não sejam a do pedido em
+                // curso são ignoradas (flags antigas do CLP não geram gravação nenhuma).
+                if (opGuardadoExpedicao > 0 && opGuardadoExpedicao == pedidoAtualId
+                        && posicaoExpedicaoSolicitada >= 1 && posicaoExpedicaoSolicitada <= 12) {
                     try {
-                        plcConnectorExp.writeInt(9, offset, opGuardadoExpedicao); // grava OP no CLP na posição correta
-
-                        // === CHAMAR ENDPOINT /expedicao/salvar PARA ATUALIZAR NO BANCO ===
-                        // usando a MESMA posição do fluxo novo
-                        RestTemplate restTemplate = new RestTemplate();
-
-                        Map<String, Integer> dadosExp = new HashMap<>();
-                        dadosExp.put("OP:" + posicaoAutoritativa, opGuardadoExpedicao); // exemplo: "OP:3" → valor da ordem
-
-                        HttpHeaders headers = new HttpHeaders();
-                        headers.setContentType(MediaType.APPLICATION_JSON);
-                        HttpEntity<Map<String, Integer>> request = new HttpEntity<>(dadosExp, headers);
-
-                        // Obtem URL dinamicamente da classe ApiUrlConfig
-                        String expedicaoApiUrl = apiUrlConfig.getExpedicaoApiUrl();
-
-                        ResponseEntity<String> response = restTemplate.postForEntity(
-                                expedicaoApiUrl + "/salvar",
-                                request,
-                                String.class
-                        );
-
-                        System.out.println("Resposta ao salvar expedição no banco: " + response.getBody());
-
+                        Expedicao exp = expedicaoRepository.findByPosicaoExpedicao(posicaoExpedicaoSolicitada)
+                                .orElseGet(Expedicao::new);
+                        if (exp.getId() == null || exp.getOrderNumber() != opGuardadoExpedicao) {
+                            exp.setPosicaoExpedicao(posicaoExpedicaoSolicitada);
+                            exp.setOrderNumber(opGuardadoExpedicao);
+                            expedicaoRepository.save(exp);
+                            System.out.println("Expedição: OP " + opGuardadoExpedicao
+                                    + " garantida no banco na posição selecionada "
+                                    + posicaoExpedicaoSolicitada + ".");
+                        }
                     } catch (Exception e) {
-                        System.out.println("ERRO [ADICIONAR Expedição]: Atualização da posição no banco de dados");
+                        System.out.println("ERRO [Adicionar Expedição]: gravação de segurança no banco");
                         e.printStackTrace();
                     }
                 }
@@ -1170,12 +1082,14 @@ public class SmartService {
             //}
         }
 
-        if ((posicaoGuardadoExpedicao == posicaoGuardarExp) & (ocupadoExp == false) & (finishOPExp == true)) {
+        // Só considera a produção finalizada se o CLP estiver tratando o pedido em curso:
+        // sem a conferência do número da OP, flags antigas do pedido anterior marcavam a
+        // produção como concluída logo no início do pedido novo.
+        if ((posicaoGuardadoExpedicao == posicaoGuardarExp) & (ocupadoExp == false) & (finishOPExp == true)
+                & (pedidoAtualId == 0 || numeroOPExp == pedidoAtualId)) {
 
             if (readOnly == false) {
 
-                System.out.println("AQUI: statusProducao: " + statusProducao);
-                System.out.println("AQUI: pedidoEmCurso:: " + pedidoEmCurso);
                 if (statusProducao == 0 & pedidoEmCurso == true) {
 
                     System.out.println("--------------------------------------------------");
@@ -1190,6 +1104,48 @@ public class SmartService {
             // }
         }
 
+        // O banco é a fonte da verdade da tabela de posições da expedição: qualquer valor
+        // divergente que a rotina interna do CLP grave por conta própria (tipicamente na
+        // posição 1) é corrigido aqui, a cada ciclo de leitura, sem tocar nas posições
+        // que já estão corretas.
+        if (!readOnly) {
+            espelharTabelaExpedicaoNoClp(plcConnectorExp);
+        }
+
+    }
+
+    /**
+     * Espelha no CLP de Expedição a tabela de posições salva no banco (DB9, words a
+     * partir do offset 6). O banco é a única fonte da verdade: qualquer posição do
+     * CLP com valor diferente do banco é reescrita com o valor do banco.
+     *
+     * Isso corrige, a cada ciclo de leitura, as escritas que a rotina interna do CLP
+     * faz por conta própria (tipicamente sobrescrevendo a posição 1), sem nunca
+     * derivar escritas de valores/flag lidos do CLP - o que evita agir sobre dados
+     * antigos de pedidos anteriores.
+     */
+    private void espelharTabelaExpedicaoNoClp(PlcConnector plcConnectorExp) {
+        try {
+            int[] desejado = new int[12];
+            for (Expedicao exp : expedicaoRepository.findAll()) {
+                int pos = exp.getPosicaoExpedicao();
+                if (pos >= 1 && pos <= 12) {
+                    desejado[pos - 1] = exp.getOrderNumber();
+                }
+            }
+
+            for (int pos = 1; pos <= 12; pos++) {
+                if (orderExpedicao[pos - 1] != desejado[pos - 1]) {
+                    plcConnectorExp.writeInt(9, 6 + ((pos - 1) * 2), desejado[pos - 1]);
+                    System.out.println("Expedição: posição " + pos + " corrigida de "
+                            + orderExpedicao[pos - 1] + " para " + desejado[pos - 1]
+                            + " (banco é a referência).");
+                }
+            }
+        } catch (Exception e) {
+            System.out.println("ERRO: espelhamento da tabela de Expedição no CLP");
+            e.printStackTrace();
+        }
     }
 
     //***************************************************************

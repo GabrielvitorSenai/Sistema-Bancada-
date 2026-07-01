@@ -131,6 +131,10 @@ public class SmartController {
                 posicoesExpedicaoPedidos.put(idPedido, posExpedicao);
             }
 
+            // Registra qual pedido está em curso: sinais do CLP que não se referirem a
+            // este número de OP são tratados como resíduo do pedido anterior e ignorados.
+            SmartService.pedidoAtualId = idPedido != null ? idPedido.intValue() : 0;
+
             // 4) Inicia o pedido sem recalcular a posição de expedição.
             boolean inicioOk = iniciarExecucaoPedidoNaPosicao(ipClp, posExpedicao);
             if (!inicioOk) {
@@ -171,6 +175,10 @@ public class SmartController {
         if (ipClpExpedicao == null || ipClpExpedicao.isBlank()) {
             return ResponseEntity.badRequest().body("IP do CLP de Expedição não informado para finalização.");
         }
+
+        // Mantém o estado compartilhado apontando para a mesma posição usada aqui,
+        // para que nenhum outro fluxo trabalhe com uma posição divergente.
+        SmartService.posicaoExpedicaoSolicitada = posExpedicao;
 
         try {
             Optional<Pedido> pedidoOptional = pedidoRepository.findById(idPedido);

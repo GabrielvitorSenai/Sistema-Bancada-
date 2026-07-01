@@ -2,26 +2,6 @@
 // O contador só deve iniciar depois que existir um pedido válido e o backend aceitar iniciar a produção.
 
 (function () {
-    function obterPedidoIdDaTela() {
-        try {
-            if (typeof obterPedidoIdAtual === "function") {
-                const id = obterPedidoIdAtual();
-                if (id) return id;
-            }
-        } catch (e) {
-            console.warn("Falha ao obter ID pelo helper:", e);
-        }
-
-        const idSession = parseInt(sessionStorage.getItem("pedidoIdAtual"));
-        if (idSession) return idSession;
-
-        const el = document.getElementById("pedido-id");
-        if (!el) return null;
-
-        const match = el.innerText.match(/#(\d+)/);
-        return match ? parseInt(match[1]) : null;
-    }
-
     async function capturarSnapshotExpedicao() {
         const snapshot = {};
 
@@ -99,7 +79,7 @@
             return false;
         }
 
-        const pedidoId = obterPedidoIdDaTela();
+        const pedidoId = obterPedidoIdAtual();
         if (!pedidoId) {
             alert("Nenhum pedido foi carregado para execução. Crie ou selecione um pedido antes de iniciar.");
             return false;
@@ -143,12 +123,28 @@
             blocos.push(bloco);
         }
 
-        const posicaoExpedicao = parseInt(document.getElementById("posExpedicao")?.value) || 0;
-        if (posicaoExpedicao >= 1 && posicaoExpedicao <= 12) {
-            sessionStorage.setItem("posicaoExpedicaoAtual", String(posicaoExpedicao));
-        } else {
-            sessionStorage.removeItem("posicaoExpedicaoAtual");
+        let posicaoExpedicao = parseInt(document.getElementById("posExpedicao")?.value) || 0;
+
+        // Posição "Automática": resolve aqui a primeira posição livre, para que
+        // frontend e backend trabalhem com a MESMA posição durante todo o pedido.
+        if (posicaoExpedicao < 1 || posicaoExpedicao > 12) {
+            try {
+                const res = await fetch("/expedicao/primeira-livre", { cache: "no-store" });
+                if (res.ok) {
+                    posicaoExpedicao = parseInt(await res.text()) || 0;
+                }
+            } catch (e) {
+                console.error("Erro ao buscar primeira posição livre da expedição:", e);
+            }
+
+            if (posicaoExpedicao < 1 || posicaoExpedicao > 12) {
+                alert("Não há posição livre na expedição para guardar o pedido.");
+                sessionStorage.removeItem("pedidoIdAtual");
+                return false;
+            }
         }
+
+        sessionStorage.setItem("posicaoExpedicaoAtual", String(posicaoExpedicao));
 
         await capturarSnapshotExpedicao();
 

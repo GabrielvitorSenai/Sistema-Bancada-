@@ -381,29 +381,15 @@ function processarDadosClp(clp, data) {
 
         // CLP4 - Expedição
         else if (clp === "clp4") {
-            for (let i = 0; i < 12; i++) {
-                const valorInt = (byteArray[6 + i * 2] << 8) | byteArray[6 + i * 2 + 1];
-                const celula = document.getElementById(`expedicao-${i + 1}`);
-                if (celula) {
-                    celula.textContent = valorInt;
-                    celula.style.backgroundColor = valorInt === 0 ? "#ccffcc" : "#ffcccc";
-                    celula.style.color = "black";
-                }
-            }
+            // A grade do Magazine de Expedição NÃO é pintada pelos bytes do CLP:
+            // o banco é a fonte da verdade e a grade é atualizada por
+            // carregarValoresExpedicao/pintarGradeExpedicao (veja o intervalo no
+            // final deste arquivo). A rotina interna do CLP escreve valores
+            // transitórios na própria tabela e a tela não deve refletir isso.
 
-
-            recebidoOpExp = (byteArray[0] & 0b00000001) !== 0;
-            finishOpExp = (byteArray[32] & 0b00000010) !== 0;
-
-            // Fim da operação: expedição recebeu E finalizou, OU todas as estações concluídas (status 2)
-            const todasConcluidas =
-                (statusEstoque == 2 && statusProcesso == 2 && statusMontagem == 2 && statusExpedicao == 2);
-
-            if ((recebidoOpExp && finishOpExp) || todasConcluidas) {
-                finalizarPedido(); // one-shot (protegido por pedidoFinalizado)
-            }
-
-
+            // A detecção de fim de operação é feita pelo observador instalado em
+            // fix-finalizacao.js (detectarFinalizacaoPeloClp4 + verificação por status),
+            // que chama finalizarPedido() de forma one-shot.
 
             atualizarCampoBooleano("var4-1", (byteArray[0] & 0b00000001) !== 0);
             atualizarCampoBooleano("var4-2", (byteArray[2] & 0b00000001) !== 0);
@@ -678,10 +664,15 @@ window.addEventListener('load', () => {
     }
 });
 
-// Obtém o ID do pedido em curso (definido na execução, em window.pedidoIdAtual;
-// fallback: lê do elemento #pedido-id da tela da Loja).
+// Obtém o ID do pedido em curso, na ordem: variável definida na execução,
+// sessionStorage (sobrevive à troca/recarga de tela) e, por fim, o elemento
+// #pedido-id da tela da Loja.
 function obterPedidoIdAtual() {
     if (window.pedidoIdAtual) return window.pedidoIdAtual;
+
+    const idSession = parseInt(sessionStorage.getItem("pedidoIdAtual"));
+    if (idSession) return idSession;
+
     const el = document.getElementById("pedido-id");
     if (el) {
         const m = el.innerText.match(/#(\d+)/);
@@ -690,109 +681,76 @@ function obterPedidoIdAtual() {
     return null;
 }
 
-// Fecha o ciclo do pedido quando a operação termina:
-// 1) para o contador e marca como concluído na tela
-// 2) marca o pedido como "concluido" no banco
-// 3) salva a expedição no CLP (posição onde o pedido ficou)
-function finalizarPedido() {
-    if (pedidoFinalizado) return; // já finalizado neste ciclo
-    pedidoFinalizado = true;
-
-    // 1) Para o contador e marca conclusão na tela
-    pedidoConcluido = true;
-    pedidoEmCurso = false;
-    pararContador();
-    const btn = document.getElementById("btnExecutarPedidoProducao");
-    if (btn) btn.textContent = "Pedido concluido";
-
-    // 2) Marca o pedido como concluído no banco
-    const pedidoId = obterPedidoIdAtual();
-    if (pedidoId) {
-        fetch("/salvar-pedido/status", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id: pedidoId, statusOrderProduction: "concluido" })
-        })
-            .then(r => console.log("Pedido " + pedidoId + " concluído no banco:", r.ok))
-            .catch(err => console.error("Erro ao concluir pedido:", err));
-    } else {
-        console.warn("finalizarPedido: ID do pedido não encontrado para marcar como concluído.");
-    }
-
-    // 3) Salva a expedição no CLP (grava a posição onde o pedido ficou)
-    const ipExpedicao = document.getElementById("hostIpExpedicao")?.value;
-    if (ipExpedicao) {
-        fetch("/clp/enviar-expedicao", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ipClp: ipExpedicao })
-        })
-            .then(r => console.log("Expedição salva no CLP:", r.ok))
-            .catch(err => console.error("Erro ao salvar expedição no CLP:", err));
-    } else {
-        console.warn("finalizarPedido: IP do CLP de Expedição não informado.");
+// Busca as posições salvas da expedição no banco. Retorna null em caso de erro.
+async function buscarExpedicaoDoBanco() {
+    try {
+        const response = await fetch("/pedidos-expedicao", { cache: "no-store" });
+        return await response.json();
+    } catch (erro) {
+        console.error("Erro ao carregar valores da expedição:", erro);
+        return null;
     }
 }
 
-function fases(fase) {
-
-    if (fase == 1) {
-
-        if (document.getElementById("btnExecutarPedidoProducao").textContent === "Executar Pedido") {
-            if (!modoLeitura) {
-                iniciarContador();
-                executarPedido();
-                document.getElementById("btnExecutarPedidoProducao").textContent = "Pedido em curso";
-            }
-
-        } else if (document.getElementById("btnExecutarPedidoProducao").textContent === "Pedido concluido") {
-
-            document.getElementById("btnExecutarPedidoProducao").textContent = "Executar Pedido";
-            statusEstoque = 0;
-            statusProcesso = 0;
-            statusMontagem = 0;
-            statusExpedicao = 0;
-            pedidoEmcurso = false;
-
-            // Chamada ao backend para zerar também os status lá
-            fetch('/smart/reset-status', {
-                method: 'POST'
-            })
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error('Erro ao resetar status no backend');
-                    }
-                    return response.text();
-                })
-                .then(data => {
-                    console.log('Backend:', data);
-                })
-                .catch(error => {
-                    console.error('Erro na chamada ao backend:', error);
-                });
-            if (!modoLeitura) {
-                carregarValoresEstoque();
-                carregarValoresExpedicao();
-            }
-        }
-    } else if (fase == 2) {
-
-        pararContador();
-    } else if (fase == 3) {
-        statusMontagem++;
-        if (statusMontagem > 2) {
-            statusMontagem = 0;
-        }
-
-    } else if (fase == 4) {
-        statusExpedicao++;
-        if (statusExpedicao > 2) {
-            statusExpedicao = 0;
-        }
+// Pinta a grade do Magazine de Expedição (tela Linha) com os dados do banco.
+function pintarGradeExpedicao(data) {
+    for (let i = 1; i <= 12; i++) {
+        const celula = document.getElementById(`expedicao-${i}`);
+        if (!celula) continue;
+        const valor = parseInt(data[`P${i}`]) || 0;
+        celula.textContent = valor;
+        celula.style.backgroundColor = valor === 0 ? "#ccffcc" : "#ffcccc";
+        celula.style.color = "black";
     }
-
 }
 
+// Marca no select "Guardar na Expedição" (tela Loja) as posições já ocupadas.
+function pintarSelectExpedicao(data) {
+    const select = document.getElementById("posExpedicao");
+    if (!select) return;
 
+    for (const option of select.options) {
+        const pos = parseInt(option.value);
+        if (!pos || pos < 1 || pos > 12) continue;
+        const valor = parseInt(data[`P${pos}`]) || 0;
+        option.textContent = valor > 0 ? `Posição ${pos} (OP:${valor})` : `Posição ${pos}`;
+        option.disabled = valor > 0;
+    }
+}
+
+// Preenche os inputs do Magazine de Expedição na tela Gestão.
+function pintarGestorExpedicao(data) {
+    const expedicaoInputs = document.querySelectorAll(".grid.expedicao .input-expedicao");
+    expedicaoInputs.forEach((input, index) => {
+        const valor = parseInt(data[`P${index + 1}`]) || 0;
+        input.value = "OP:" + valor;
+    });
+}
+
+// Carrega as posições salvas da expedição (banco) e atualiza todas as telas.
+async function carregarValoresExpedicao() {
+    const data = await buscarExpedicaoDoBanco();
+    if (!data) return null;
+
+    pintarGradeExpedicao(data);
+    pintarSelectExpedicao(data);
+    pintarGestorExpedicao(data);
+    return data;
+}
+
+// O banco é a fonte da verdade das posições da expedição: a grade da Linha e o
+// select da Loja são atualizados periodicamente a partir dele. Os inputs da
+// Gestão só são preenchidos nas cargas explícitas, para não atrapalhar a
+// edição manual.
+setInterval(async () => {
+    const data = await buscarExpedicaoDoBanco();
+    if (data) {
+        pintarGradeExpedicao(data);
+        pintarSelectExpedicao(data);
+    }
+}, 3000);
+
+// As funções executarPedido/fases/finalizarPedido são definidas em
+// fix-executar-pedido.js e fix-finalizacao.js, carregados após este arquivo.
 
 window.onload = renderBlocos;

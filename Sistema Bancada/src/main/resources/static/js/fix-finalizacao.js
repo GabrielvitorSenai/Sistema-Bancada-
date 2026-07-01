@@ -40,28 +40,6 @@
         }
     }
 
-    function obterPedidoIdAtualSeguro() {
-        try {
-            if (typeof obterPedidoIdAtual === "function") {
-                const id = obterPedidoIdAtual();
-                if (id) return id;
-            }
-        } catch (e) {
-            console.warn("Falha ao usar obterPedidoIdAtual:", e);
-        }
-
-        if (window.pedidoIdAtual) return window.pedidoIdAtual;
-
-        const idSession = parseInt(sessionStorage.getItem("pedidoIdAtual"));
-        if (idSession) return idSession;
-
-        const el = document.getElementById("pedido-id");
-        if (!el) return null;
-
-        const match = el.innerText.match(/#(\d+)/);
-        return match ? parseInt(match[1]) : null;
-    }
-
     function obterPosicaoExpedicaoSelecionada() {
         const posSession = parseInt(sessionStorage.getItem("posicaoExpedicaoAtual"));
         if (posSession) return posSession;
@@ -101,7 +79,12 @@
         }, 800);
     }
 
-    function limparPedidoAtualFinalizado() {
+    function limparPedidoAtualFinalizado(pedidoId) {
+        // Se um novo pedido já foi iniciado enquanto as reconciliações rodavam,
+        // não apaga os dados dele.
+        const idAtual = parseInt(sessionStorage.getItem("pedidoIdAtual"));
+        if (idAtual && pedidoId && idAtual !== pedidoId) return;
+
         sessionStorage.removeItem("pedidoEmCurso");
         sessionStorage.removeItem("pedidoIdAtual");
         sessionStorage.removeItem("posicaoExpedicaoAtual");
@@ -138,7 +121,10 @@
     }
 
     function agendarReconciliacoesExpedicao(pedidoId, posicaoExpedicao, ipExpedicao) {
-        const delays = [900, 2500, 4500];
+        // A guarda física do bloco pode levar bem mais que alguns segundos após a
+        // finalização, e é nesse momento que o CLP sobrescreve a posição 1 da sua
+        // tabela. As últimas passadas cobrem essa janela.
+        const delays = [900, 2500, 4500, 8000, 15000, 30000];
         let concluidas = 0;
 
         delays.forEach(delay => {
@@ -147,7 +133,7 @@
                     .finally(() => {
                         concluidas++;
                         if (concluidas === delays.length) {
-                            limparPedidoAtualFinalizado();
+                            limparPedidoAtualFinalizado(pedidoId);
                             atualizarVisualExpedicaoDepois();
                         }
                     });
@@ -158,7 +144,7 @@
     function finalizarPedidoCorrigido() {
         if (typeof pedidoFinalizado !== "undefined" && pedidoFinalizado) return;
 
-        const pedidoId = obterPedidoIdAtualSeguro();
+        const pedidoId = obterPedidoIdAtual();
         const ipExpedicao = document.getElementById("hostIpExpedicao")?.value;
         const posicaoExpedicao = obterPosicaoExpedicaoSelecionada();
 
@@ -220,21 +206,12 @@
             });
     }
 
-    function instalarFinalizacaoCorrigida() {
-        if (typeof finalizarPedido !== "function") return false;
-        if (finalizarPedido.__fixFinalizacaoInstalado) return true;
-
-        finalizarPedido = finalizarPedidoCorrigido;
-        finalizarPedido.__fixFinalizacaoInstalado = true;
-        return true;
-    }
-
     function detectarFinalizacaoPeloClp4(data) {
         try {
             if (!pedidoEstaEmCursoNaTela()) return;
             if (typeof pedidoFinalizado !== "undefined" && pedidoFinalizado) return;
 
-            const pedidoId = obterPedidoIdAtualSeguro();
+            const pedidoId = obterPedidoIdAtual();
             if (!pedidoId) return;
 
             const byteArray = bytesHexParaArray(data);
@@ -245,6 +222,7 @@
             const adicionarExpedicao = (byteArray[42] & 0b00000001) !== 0;
             const ocupadoExp = (byteArray[34] & 0b00000001) !== 0;
 
+            const numeroOpExp = word(byteArray, 30);
             const posicaoGuardada = word(byteArray, 38);
             const opGuardada = word(byteArray, 44);
             const posicaoSelecionada = obterPosicaoExpedicaoSelecionada();
@@ -252,16 +230,14 @@
                 ? word(byteArray, 6 + ((posicaoSelecionada - 1) * 2))
                 : 0;
 
-            const clpConfirmouPedido =
+            // Só finaliza com evidência de que o CLP está tratando ESTE pedido.
+            // Flags genéricas (finishOp/adicionarExpedicao sozinhas) ficam "sujas"
+            // do pedido anterior e disparavam a finalização logo no início do
+            // pedido novo - salvando a expedição antes da hora.
+            const finalizou =
                 opGuardada === pedidoId ||
                 valorNaPosicaoSelecionada === pedidoId ||
-                (posicaoGuardada >= 1 && posicaoGuardada <= 12 && finishOpExp && !ocupadoExp) ||
-                (posicaoGuardada >= 1 && posicaoGuardada <= 12 && adicionarExpedicao);
-
-            const finalizou =
-                (recebidoOpExp && finishOpExp) ||
-                adicionarExpedicao ||
-                clpConfirmouPedido;
+                (numeroOpExp === pedidoId && ((recebidoOpExp && finishOpExp) || adicionarExpedicao));
 
             if (finalizou) {
                 // A regra do sistema é respeitar a posição selecionada na execução.
@@ -274,6 +250,7 @@
 
                 console.log("Finalização detectada pelo CLP4", {
                     pedidoId,
+                    numeroOpExp,
                     posicaoSelecionada,
                     posicaoGuardada,
                     opGuardada,
@@ -291,25 +268,8 @@
         }
     }
 
-    function instalarObservadorClp4() {
-        if (typeof processarDadosClp !== "function") return false;
-        if (processarDadosClp.__fixFinalizacaoClp4Instalado) return true;
-
-        const processarOriginal = processarDadosClp;
-        processarDadosClp = function (clp, data) {
-            processarOriginal.apply(this, arguments);
-            if (clp === "clp4") {
-                detectarFinalizacaoPeloClp4(data);
-            }
-        };
-
-        processarDadosClp.__fixFinalizacaoClp4Instalado = true;
-        return true;
-    }
-
     function tentarFinalizarPedido() {
         try {
-            if (typeof finalizarPedido !== "function") return;
             if (typeof pedidoFinalizado !== "undefined" && pedidoFinalizado) return;
 
             if (podeFinalizarPorStatus()) {
@@ -321,13 +281,18 @@
         }
     }
 
-    const setupInterval = setInterval(() => {
-        const okFinalizacao = instalarFinalizacaoCorrigida();
-        const okClp4 = instalarObservadorClp4();
-        if (okFinalizacao && okClp4) {
-            clearInterval(setupInterval);
+    // Este arquivo carrega depois de smart.js, então a instalação é direta:
+    // finalizarPedido passa a ser a versão corrigida e o processamento do CLP4
+    // ganha o observador de finalização.
+    window.finalizarPedido = finalizarPedidoCorrigido;
+
+    const processarOriginal = window.processarDadosClp;
+    window.processarDadosClp = function (clp, data) {
+        processarOriginal.apply(this, arguments);
+        if (clp === "clp4") {
+            detectarFinalizacaoPeloClp4(data);
         }
-    }, 300);
+    };
 
     setInterval(tentarFinalizarPedido, 700);
 })();
