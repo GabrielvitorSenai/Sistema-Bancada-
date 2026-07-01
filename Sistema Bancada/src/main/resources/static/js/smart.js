@@ -381,16 +381,11 @@ function processarDadosClp(clp, data) {
 
         // CLP4 - Expedição
         else if (clp === "clp4") {
-            for (let i = 0; i < 12; i++) {
-                const valorInt = (byteArray[6 + i * 2] << 8) | byteArray[6 + i * 2 + 1];
-                const celula = document.getElementById(`expedicao-${i + 1}`);
-                if (celula) {
-                    celula.textContent = valorInt;
-                    celula.style.backgroundColor = valorInt === 0 ? "#ccffcc" : "#ffcccc";
-                    celula.style.color = "black";
-                }
-            }
-
+            // A grade do Magazine de Expedição NÃO é pintada pelos bytes do CLP:
+            // o banco é a fonte da verdade e a grade é atualizada por
+            // carregarValoresExpedicao/pintarGradeExpedicao (veja o intervalo no
+            // final deste arquivo). A rotina interna do CLP escreve valores
+            // transitórios na própria tabela e a tela não deve refletir isso.
 
             // A detecção de fim de operação é feita pelo observador instalado em
             // fix-finalizacao.js (detectarFinalizacaoPeloClp4 + verificação por status),
@@ -686,48 +681,74 @@ function obterPedidoIdAtual() {
     return null;
 }
 
-// Carrega as posições salvas da expedição (banco) e atualiza a interface:
-// - inputs do Magazine de Expedição na tela Gestão;
-// - grade da expedição na tela Linha;
-// - select "Guardar na Expedição" da tela Loja (marca posições ocupadas).
-async function carregarValoresExpedicao() {
-    console.log("Carregar valores Expedição");
+// Busca as posições salvas da expedição no banco. Retorna null em caso de erro.
+async function buscarExpedicaoDoBanco() {
     try {
         const response = await fetch("/pedidos-expedicao", { cache: "no-store" });
-        const data = await response.json();
-
-        const expedicaoInputs = document.querySelectorAll(".grid.expedicao .input-expedicao");
-        expedicaoInputs.forEach((input, index) => {
-            const valor = parseInt(data[`P${index + 1}`]) || 0;
-            input.value = "OP:" + valor;
-        });
-
-        for (let i = 1; i <= 12; i++) {
-            const celula = document.getElementById(`expedicao-${i}`);
-            if (!celula) continue;
-            const valor = parseInt(data[`P${i}`]) || 0;
-            celula.textContent = valor;
-            celula.style.backgroundColor = valor === 0 ? "#ccffcc" : "#ffcccc";
-            celula.style.color = "black";
-        }
-
-        const select = document.getElementById("posExpedicao");
-        if (select) {
-            for (const option of select.options) {
-                const pos = parseInt(option.value);
-                if (!pos || pos < 1 || pos > 12) continue;
-                const valor = parseInt(data[`P${pos}`]) || 0;
-                option.textContent = valor > 0 ? `Posição ${pos} (OP:${valor})` : `Posição ${pos}`;
-                option.disabled = valor > 0;
-            }
-        }
-
-        return data;
+        return await response.json();
     } catch (erro) {
         console.error("Erro ao carregar valores da expedição:", erro);
         return null;
     }
 }
+
+// Pinta a grade do Magazine de Expedição (tela Linha) com os dados do banco.
+function pintarGradeExpedicao(data) {
+    for (let i = 1; i <= 12; i++) {
+        const celula = document.getElementById(`expedicao-${i}`);
+        if (!celula) continue;
+        const valor = parseInt(data[`P${i}`]) || 0;
+        celula.textContent = valor;
+        celula.style.backgroundColor = valor === 0 ? "#ccffcc" : "#ffcccc";
+        celula.style.color = "black";
+    }
+}
+
+// Marca no select "Guardar na Expedição" (tela Loja) as posições já ocupadas.
+function pintarSelectExpedicao(data) {
+    const select = document.getElementById("posExpedicao");
+    if (!select) return;
+
+    for (const option of select.options) {
+        const pos = parseInt(option.value);
+        if (!pos || pos < 1 || pos > 12) continue;
+        const valor = parseInt(data[`P${pos}`]) || 0;
+        option.textContent = valor > 0 ? `Posição ${pos} (OP:${valor})` : `Posição ${pos}`;
+        option.disabled = valor > 0;
+    }
+}
+
+// Preenche os inputs do Magazine de Expedição na tela Gestão.
+function pintarGestorExpedicao(data) {
+    const expedicaoInputs = document.querySelectorAll(".grid.expedicao .input-expedicao");
+    expedicaoInputs.forEach((input, index) => {
+        const valor = parseInt(data[`P${index + 1}`]) || 0;
+        input.value = "OP:" + valor;
+    });
+}
+
+// Carrega as posições salvas da expedição (banco) e atualiza todas as telas.
+async function carregarValoresExpedicao() {
+    const data = await buscarExpedicaoDoBanco();
+    if (!data) return null;
+
+    pintarGradeExpedicao(data);
+    pintarSelectExpedicao(data);
+    pintarGestorExpedicao(data);
+    return data;
+}
+
+// O banco é a fonte da verdade das posições da expedição: a grade da Linha e o
+// select da Loja são atualizados periodicamente a partir dele. Os inputs da
+// Gestão só são preenchidos nas cargas explícitas, para não atrapalhar a
+// edição manual.
+setInterval(async () => {
+    const data = await buscarExpedicaoDoBanco();
+    if (data) {
+        pintarGradeExpedicao(data);
+        pintarSelectExpedicao(data);
+    }
+}, 3000);
 
 // As funções executarPedido/fases/finalizarPedido são definidas em
 // fix-executar-pedido.js e fix-finalizacao.js, carregados após este arquivo.

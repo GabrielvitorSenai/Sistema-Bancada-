@@ -38,6 +38,7 @@ public class SmartService {
 
     public static int posicaoEstoqueSolicitada = 0;
     public static int posicaoExpedicaoSolicitada = 0;
+    public static int pedidoAtualId = 0;
 
     public static boolean blockFinished = false;
 
@@ -995,15 +996,28 @@ public class SmartService {
                             "ERRO [Adicionar Expedição]: Atualização da Flag RecebidoExpedicao [DB9:2.0] para TRUE");
                 }
 
-                // A persistência do pedido no banco é feita apenas pelo endpoint
-                // /finalizar-pedido-producao, que grava na posição selecionada na execução.
-                // Aqui, no momento em que o CLP confirma a guarda física, conferimos a
-                // tabela de posições do CLP: a rotina interna dele grava a OP também na
-                // posição 1, sobrescrevendo o que estava lá. Restauramos essas posições
-                // com o valor salvo no banco e garantimos a OP apenas na posição correta.
-                System.out.println("Expedição confirmou guarda da OP " + opGuardadoExpedicao
-                        + " na posição " + posicaoGuardadoExpedicao + ".");
-                reconciliarTabelaExpedicaoNoClp(plcConnectorExp);
+                // Rede de segurança da persistência: se o CLP confirmou a guarda da OP do
+                // pedido EM CURSO e a finalização ainda não gravou no banco, grava aqui na
+                // MESMA posição selecionada na execução. OPs que não sejam a do pedido em
+                // curso são ignoradas (flags antigas do CLP não geram gravação nenhuma).
+                if (opGuardadoExpedicao > 0 && opGuardadoExpedicao == pedidoAtualId
+                        && posicaoExpedicaoSolicitada >= 1 && posicaoExpedicaoSolicitada <= 12) {
+                    try {
+                        Expedicao exp = expedicaoRepository.findByPosicaoExpedicao(posicaoExpedicaoSolicitada)
+                                .orElseGet(Expedicao::new);
+                        if (exp.getId() == null || exp.getOrderNumber() != opGuardadoExpedicao) {
+                            exp.setPosicaoExpedicao(posicaoExpedicaoSolicitada);
+                            exp.setOrderNumber(opGuardadoExpedicao);
+                            expedicaoRepository.save(exp);
+                            System.out.println("Expedição: OP " + opGuardadoExpedicao
+                                    + " garantida no banco na posição selecionada "
+                                    + posicaoExpedicaoSolicitada + ".");
+                        }
+                    } catch (Exception e) {
+                        System.out.println("ERRO [Adicionar Expedição]: gravação de segurança no banco");
+                        e.printStackTrace();
+                    }
+                }
             }
 
         }
@@ -1068,12 +1082,14 @@ public class SmartService {
             //}
         }
 
-        if ((posicaoGuardadoExpedicao == posicaoGuardarExp) & (ocupadoExp == false) & (finishOPExp == true)) {
+        // Só considera a produção finalizada se o CLP estiver tratando o pedido em curso:
+        // sem a conferência do número da OP, flags antigas do pedido anterior marcavam a
+        // produção como concluída logo no início do pedido novo.
+        if ((posicaoGuardadoExpedicao == posicaoGuardarExp) & (ocupadoExp == false) & (finishOPExp == true)
+                & (pedidoAtualId == 0 || numeroOPExp == pedidoAtualId)) {
 
             if (readOnly == false) {
 
-                System.out.println("AQUI: statusProducao: " + statusProducao);
-                System.out.println("AQUI: pedidoEmCurso:: " + pedidoEmCurso);
                 if (statusProducao == 0 & pedidoEmCurso == true) {
 
                     System.out.println("--------------------------------------------------");
@@ -1088,52 +1104,46 @@ public class SmartService {
             // }
         }
 
+        // O banco é a fonte da verdade da tabela de posições da expedição: qualquer valor
+        // divergente que a rotina interna do CLP grave por conta própria (tipicamente na
+        // posição 1) é corrigido aqui, a cada ciclo de leitura, sem tocar nas posições
+        // que já estão corretas.
+        if (!readOnly) {
+            espelharTabelaExpedicaoNoClp(plcConnectorExp);
+        }
+
     }
 
     /**
-     * Garante que a OP recém-guardada exista apenas na posição selecionada dentro
-     * da tabela de posições do CLP de Expedição (DB9, words a partir do offset 6).
+     * Espelha no CLP de Expedição a tabela de posições salva no banco (DB9, words a
+     * partir do offset 6). O banco é a única fonte da verdade: qualquer posição do
+     * CLP com valor diferente do banco é reescrita com o valor do banco.
      *
-     * A rotina interna do CLP também grava a OP em uma posição própria (tipicamente
-     * a posição 1), sobrescrevendo o valor que estava lá. Cada posição divergente é
-     * restaurada com o valor salvo no banco, sem alterar posições de outros pedidos.
-     * Usa a leitura do ciclo atual (orderExpedicao), evitando novas leituras do CLP.
+     * Isso corrige, a cada ciclo de leitura, as escritas que a rotina interna do CLP
+     * faz por conta própria (tipicamente sobrescrevendo a posição 1), sem nunca
+     * derivar escritas de valores/flag lidos do CLP - o que evita agir sobre dados
+     * antigos de pedidos anteriores.
      */
-    private void reconciliarTabelaExpedicaoNoClp(PlcConnector plcConnectorExp) {
-        int op = opGuardadoExpedicao;
-        int posicaoCorreta = posicaoExpedicaoSolicitada;
-
-        if (op <= 0 || posicaoCorreta < 1 || posicaoCorreta > 12) {
-            return;
-        }
-
+    private void espelharTabelaExpedicaoNoClp(PlcConnector plcConnectorExp) {
         try {
-            // Garante a OP na posição selecionada.
-            if (orderExpedicao[posicaoCorreta - 1] != op) {
-                plcConnectorExp.writeInt(9, 6 + ((posicaoCorreta - 1) * 2), op);
-                System.out.println("Expedição: OP " + op + " gravada na posição selecionada "
-                        + posicaoCorreta + ".");
+            int[] desejado = new int[12];
+            for (Expedicao exp : expedicaoRepository.findAll()) {
+                int pos = exp.getPosicaoExpedicao();
+                if (pos >= 1 && pos <= 12) {
+                    desejado[pos - 1] = exp.getOrderNumber();
+                }
             }
 
-            // Restaura as demais posições que o CLP sobrescreveu com a mesma OP.
             for (int pos = 1; pos <= 12; pos++) {
-                if (pos == posicaoCorreta || orderExpedicao[pos - 1] != op) {
-                    continue;
+                if (orderExpedicao[pos - 1] != desejado[pos - 1]) {
+                    plcConnectorExp.writeInt(9, 6 + ((pos - 1) * 2), desejado[pos - 1]);
+                    System.out.println("Expedição: posição " + pos + " corrigida de "
+                            + orderExpedicao[pos - 1] + " para " + desejado[pos - 1]
+                            + " (banco é a referência).");
                 }
-
-                int valorBanco = expedicaoRepository.findByPosicaoExpedicao(pos)
-                        .map(Expedicao::getOrderNumber)
-                        .orElse(0);
-                if (valorBanco == op) {
-                    valorBanco = 0; // nunca mantém a mesma OP em duas posições
-                }
-
-                plcConnectorExp.writeInt(9, 6 + ((pos - 1) * 2), valorBanco);
-                System.out.println("Expedição: posição " + pos + " restaurada para " + valorBanco
-                        + " (CLP havia sobrescrito com a OP " + op + ").");
             }
         } catch (Exception e) {
-            System.out.println("ERRO [Adicionar Expedição]: reconciliação da tabela de posições do CLP");
+            System.out.println("ERRO: espelhamento da tabela de Expedição no CLP");
             e.printStackTrace();
         }
     }
