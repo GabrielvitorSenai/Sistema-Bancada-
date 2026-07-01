@@ -17,6 +17,7 @@ import org.springframework.web.client.RestTemplate;
 
 import com.tecdes.sistema_bancada.config.ApiUrlConfig;
 import com.tecdes.sistema_bancada.model.Estoque;
+import com.tecdes.sistema_bancada.model.Expedicao;
 import com.tecdes.sistema_bancada.repository.EstoqueRepository;
 import com.tecdes.sistema_bancada.repository.ExpedicaoRepository;
 
@@ -37,6 +38,7 @@ public class SmartService {
 
     public static int posicaoEstoqueSolicitada = 0;
     public static int posicaoExpedicaoSolicitada = 0;
+    public static int pedidoAtualId = 0;
 
     public static boolean blockFinished = false;
 
@@ -994,15 +996,28 @@ public class SmartService {
                             "ERRO [Adicionar Expedição]: Atualização da Flag RecebidoExpedicao [DB9:2.0] para TRUE");
                 }
 
-                // A persistência do pedido (banco + posição no CLP) é feita apenas pelo
-                // endpoint /finalizar-pedido-producao, que grava na posição selecionada na
-                // execução do pedido. Este handler roda a cada ciclo de leitura do CLP e,
-                // quando também gravava, o pedido acabava salvo em duas posições sempre que
-                // posicaoExpedicaoSolicitada divergia da posição selecionada (ou quando a
-                // flag adicionarExpedicao ainda estava ativa de um pedido anterior).
-                System.out.println("Expedição confirmou guarda da OP " + opGuardadoExpedicao
-                        + " na posição " + posicaoGuardadoExpedicao
-                        + " (persistência feita na finalização do pedido).");
+                // Rede de segurança da persistência: se o CLP confirmou a guarda da OP do
+                // pedido EM CURSO e a finalização ainda não gravou no banco, grava aqui na
+                // MESMA posição selecionada na execução. OPs que não sejam a do pedido em
+                // curso são ignoradas (flags antigas do CLP não geram gravação nenhuma).
+                if (opGuardadoExpedicao > 0 && opGuardadoExpedicao == pedidoAtualId
+                        && posicaoExpedicaoSolicitada >= 1 && posicaoExpedicaoSolicitada <= 12) {
+                    try {
+                        Expedicao exp = expedicaoRepository.findByPosicaoExpedicao(posicaoExpedicaoSolicitada)
+                                .orElseGet(Expedicao::new);
+                        if (exp.getId() == null || exp.getOrderNumber() != opGuardadoExpedicao) {
+                            exp.setPosicaoExpedicao(posicaoExpedicaoSolicitada);
+                            exp.setOrderNumber(opGuardadoExpedicao);
+                            expedicaoRepository.save(exp);
+                            System.out.println("Expedição: OP " + opGuardadoExpedicao
+                                    + " garantida no banco na posição selecionada "
+                                    + posicaoExpedicaoSolicitada + ".");
+                        }
+                    } catch (Exception e) {
+                        System.out.println("ERRO [Adicionar Expedição]: gravação de segurança no banco");
+                        e.printStackTrace();
+                    }
+                }
             }
 
         }
@@ -1067,12 +1082,14 @@ public class SmartService {
             //}
         }
 
-        if ((posicaoGuardadoExpedicao == posicaoGuardarExp) & (ocupadoExp == false) & (finishOPExp == true)) {
+        // Só considera a produção finalizada se o CLP estiver tratando o pedido em curso:
+        // sem a conferência do número da OP, flags antigas do pedido anterior marcavam a
+        // produção como concluída logo no início do pedido novo.
+        if ((posicaoGuardadoExpedicao == posicaoGuardarExp) & (ocupadoExp == false) & (finishOPExp == true)
+                & (pedidoAtualId == 0 || numeroOPExp == pedidoAtualId)) {
 
             if (readOnly == false) {
 
-                System.out.println("AQUI: statusProducao: " + statusProducao);
-                System.out.println("AQUI: pedidoEmCurso:: " + pedidoEmCurso);
                 if (statusProducao == 0 & pedidoEmCurso == true) {
 
                     System.out.println("--------------------------------------------------");
@@ -1087,6 +1104,48 @@ public class SmartService {
             // }
         }
 
+        // O banco é a fonte da verdade da tabela de posições da expedição: qualquer valor
+        // divergente que a rotina interna do CLP grave por conta própria (tipicamente na
+        // posição 1) é corrigido aqui, a cada ciclo de leitura, sem tocar nas posições
+        // que já estão corretas.
+        if (!readOnly) {
+            espelharTabelaExpedicaoNoClp(plcConnectorExp);
+        }
+
+    }
+
+    /**
+     * Espelha no CLP de Expedição a tabela de posições salva no banco (DB9, words a
+     * partir do offset 6). O banco é a única fonte da verdade: qualquer posição do
+     * CLP com valor diferente do banco é reescrita com o valor do banco.
+     *
+     * Isso corrige, a cada ciclo de leitura, as escritas que a rotina interna do CLP
+     * faz por conta própria (tipicamente sobrescrevendo a posição 1), sem nunca
+     * derivar escritas de valores/flag lidos do CLP - o que evita agir sobre dados
+     * antigos de pedidos anteriores.
+     */
+    private void espelharTabelaExpedicaoNoClp(PlcConnector plcConnectorExp) {
+        try {
+            int[] desejado = new int[12];
+            for (Expedicao exp : expedicaoRepository.findAll()) {
+                int pos = exp.getPosicaoExpedicao();
+                if (pos >= 1 && pos <= 12) {
+                    desejado[pos - 1] = exp.getOrderNumber();
+                }
+            }
+
+            for (int pos = 1; pos <= 12; pos++) {
+                if (orderExpedicao[pos - 1] != desejado[pos - 1]) {
+                    plcConnectorExp.writeInt(9, 6 + ((pos - 1) * 2), desejado[pos - 1]);
+                    System.out.println("Expedição: posição " + pos + " corrigida de "
+                            + orderExpedicao[pos - 1] + " para " + desejado[pos - 1]
+                            + " (banco é a referência).");
+                }
+            }
+        } catch (Exception e) {
+            System.out.println("ERRO: espelhamento da tabela de Expedição no CLP");
+            e.printStackTrace();
+        }
     }
 
     //***************************************************************

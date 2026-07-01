@@ -115,12 +115,22 @@ public class ExpedicaoCorrecaoController {
                 }
 
                 // Remove duplicidade no CLP somente se a posição contém o mesmo pedido.
+                // Em vez de zerar, restaura o valor salvo no banco para aquela posição,
+                // preservando OPs de outros pedidos que o CLP tenha sobrescrito.
                 Integer valorNoClp = lerPosicaoNoClp(ipClp, posicao);
                 if (valorNoClp != null && valorNoClp == pedidoId) {
-                    boolean limpo = escreverPosicaoNoClp(ipClp, posicao, 0);
-                    if (limpo) {
+                    int valorBanco = expedicaoRepository.findByPosicaoExpedicao(posicao)
+                            .map(Expedicao::getOrderNumber)
+                            .orElse(0);
+                    if (valorBanco == pedidoId) {
+                        valorBanco = 0; // nunca mantém a mesma OP em duas posições
+                    }
+
+                    boolean restaurado = escreverPosicaoNoClp(ipClp, posicao, valorBanco);
+                    if (restaurado) {
                         System.out.println("Duplicata do pedido " + pedidoId
-                                + " removida do CLP na posição " + posicao + ".");
+                                + " removida do CLP na posição " + posicao
+                                + " (valor restaurado: " + valorBanco + ").");
                     }
                 }
             }

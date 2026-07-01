@@ -131,6 +131,10 @@ public class SmartController {
                 posicoesExpedicaoPedidos.put(idPedido, posExpedicao);
             }
 
+            // Registra qual pedido está em curso: sinais do CLP que não se referirem a
+            // este número de OP são tratados como resíduo do pedido anterior e ignorados.
+            SmartService.pedidoAtualId = idPedido != null ? idPedido.intValue() : 0;
+
             // 4) Inicia o pedido sem recalcular a posição de expedição.
             boolean inicioOk = iniciarExecucaoPedidoNaPosicao(ipClp, posExpedicao);
             if (!inicioOk) {

@@ -79,7 +79,12 @@
         }, 800);
     }
 
-    function limparPedidoAtualFinalizado() {
+    function limparPedidoAtualFinalizado(pedidoId) {
+        // Se um novo pedido já foi iniciado enquanto as reconciliações rodavam,
+        // não apaga os dados dele.
+        const idAtual = parseInt(sessionStorage.getItem("pedidoIdAtual"));
+        if (idAtual && pedidoId && idAtual !== pedidoId) return;
+
         sessionStorage.removeItem("pedidoEmCurso");
         sessionStorage.removeItem("pedidoIdAtual");
         sessionStorage.removeItem("posicaoExpedicaoAtual");
@@ -116,7 +121,10 @@
     }
 
     function agendarReconciliacoesExpedicao(pedidoId, posicaoExpedicao, ipExpedicao) {
-        const delays = [900, 2500, 4500];
+        // A guarda física do bloco pode levar bem mais que alguns segundos após a
+        // finalização, e é nesse momento que o CLP sobrescreve a posição 1 da sua
+        // tabela. As últimas passadas cobrem essa janela.
+        const delays = [900, 2500, 4500, 8000, 15000, 30000];
         let concluidas = 0;
 
         delays.forEach(delay => {
@@ -125,7 +133,7 @@
                     .finally(() => {
                         concluidas++;
                         if (concluidas === delays.length) {
-                            limparPedidoAtualFinalizado();
+                            limparPedidoAtualFinalizado(pedidoId);
                             atualizarVisualExpedicaoDepois();
                         }
                     });
@@ -214,6 +222,7 @@
             const adicionarExpedicao = (byteArray[42] & 0b00000001) !== 0;
             const ocupadoExp = (byteArray[34] & 0b00000001) !== 0;
 
+            const numeroOpExp = word(byteArray, 30);
             const posicaoGuardada = word(byteArray, 38);
             const opGuardada = word(byteArray, 44);
             const posicaoSelecionada = obterPosicaoExpedicaoSelecionada();
@@ -221,16 +230,14 @@
                 ? word(byteArray, 6 + ((posicaoSelecionada - 1) * 2))
                 : 0;
 
-            const clpConfirmouPedido =
+            // Só finaliza com evidência de que o CLP está tratando ESTE pedido.
+            // Flags genéricas (finishOp/adicionarExpedicao sozinhas) ficam "sujas"
+            // do pedido anterior e disparavam a finalização logo no início do
+            // pedido novo - salvando a expedição antes da hora.
+            const finalizou =
                 opGuardada === pedidoId ||
                 valorNaPosicaoSelecionada === pedidoId ||
-                (posicaoGuardada >= 1 && posicaoGuardada <= 12 && finishOpExp && !ocupadoExp) ||
-                (posicaoGuardada >= 1 && posicaoGuardada <= 12 && adicionarExpedicao);
-
-            const finalizou =
-                (recebidoOpExp && finishOpExp) ||
-                adicionarExpedicao ||
-                clpConfirmouPedido;
+                (numeroOpExp === pedidoId && ((recebidoOpExp && finishOpExp) || adicionarExpedicao));
 
             if (finalizou) {
                 // A regra do sistema é respeitar a posição selecionada na execução.
@@ -243,6 +250,7 @@
 
                 console.log("Finalização detectada pelo CLP4", {
                     pedidoId,
+                    numeroOpExp,
                     posicaoSelecionada,
                     posicaoGuardada,
                     opGuardada,
