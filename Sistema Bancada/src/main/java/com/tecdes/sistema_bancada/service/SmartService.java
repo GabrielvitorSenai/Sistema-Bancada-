@@ -1063,28 +1063,32 @@ public class SmartService {
                             "ERRO [Adicionar Expedição]: Atualização da Flag RecebidoExpedicao [DB9:2.0] para TRUE");
                 }
 
-                // Usa a posição realmente selecionada na execução do pedido (autoritativa),
-                // em vez do valor cru do CLP (DB9:4 -> posicaoGuardarExp), que pode estar defasado
-                // em 1 e gravar uma linha diferente do fluxo novo, gerando a posição duplicada.
-                // Como os dois caminhos fazem upsert por posição (findByPosicaoExpedicao), gravar
-                // sempre a mesma posição torna o upsert idempotente.
+                // CORREÇÃO DO BUG DE SOBRESCRITA DA POSIÇÃO 1:
+                // Antes usávamos "posicaoGuardarExp" (valor lido do CLP em DB9:4). Quando esse
+                // valor está defasado/zerado, ele resolve para 1 e este bloco legado gravava o
+                // pedido recém-concluído na posição 1, duplicando o registro que o fluxo novo
+                // (/finalizar-pedido-producao) já salvou na posição correta.
+                //
+                // Passamos a usar a posição REALMENTE selecionada na execução do pedido
+                // (posicaoExpedicaoSolicitada). Assim, os dois caminhos de persistência gravam
+                // a MESMA linha (upsert por posição = idempotente) e a posição 1 nunca é tocada.
                 int posicaoAutoritativa = posicaoExpedicaoSolicitada;
-                System.out.println("Guardando Operacao em posicaoAutoritativa: " + posicaoAutoritativa);
+
                 if (posicaoAutoritativa < 1 || posicaoAutoritativa > 12) {
-                    // Blinda contra valor inválido para nunca cair na posição 1 por engano.
-                    System.out.println("ERRO [Adicionar Expedição]: posicaoExpedicaoSolicitada inválida ("
-                            + posicaoAutoritativa + "). Ignorando gravação legada para não duplicar.");
+                    System.out.println("AVISO [Adicionar Expedição]: posicaoExpedicaoSolicitada inválida ("
+                            + posicaoAutoritativa + "). Gravação legada ignorada para evitar duplicidade.");
                 } else {
                     int offset = 6 + (posicaoAutoritativa - 1) * 2;
+                    System.out.println("Guardando Operacao em posicaoAutoritativa: " + posicaoAutoritativa
+                            + " (posicaoGuardarExp lida do CLP era: " + posicaoGuardarExp + ")");
                     try {
-                        plcConnectorExp.writeInt(9, offset, opGuardadoExpedicao); // grava OP no CLP na posição correta
+                        plcConnectorExp.writeInt(9, offset, opGuardadoExpedicao); // grava operação no CLP na posição correta
 
                         // === CHAMAR ENDPOINT /expedicao/salvar PARA ATUALIZAR NO BANCO ===
-                        // usando a MESMA posição do fluxo novo
                         RestTemplate restTemplate = new RestTemplate();
 
                         Map<String, Integer> dadosExp = new HashMap<>();
-                        dadosExp.put("OP:" + posicaoAutoritativa, opGuardadoExpedicao); // exemplo: "OP:3" → valor da ordem
+                        dadosExp.put("OP:" + posicaoAutoritativa, opGuardadoExpedicao); // grava na posição selecionada, não na do CLP
 
                         HttpHeaders headers = new HttpHeaders();
                         headers.setContentType(MediaType.APPLICATION_JSON);
