@@ -15,21 +15,70 @@ import com.tecdes.sistema_bancada.service.PlcConnector;
 import com.tecdes.sistema_bancada.service.SmartService;
 import com.tecdes.sistema_bancada.service.SmartService.PlcConnectionManager;
 
+/**
+ * Controller auxiliar para preparar e corrigir o Magazine de Expedição.
+ *
+ * Ele concentra as rotas extras criadas para evitar que o pedido novo seja
+ * gravado em posição errada ou duplicada no CLP de Expedição.
+ */
 @RestController
 public class ExpedicaoCorrecaoController {
 
+    /** Repositório usado para ler e atualizar posições da expedição no banco. */
     @Autowired
     private ExpedicaoRepository expedicaoRepository;
 
+    /**
+     * Prepara a posição correta da expedição antes de iniciar o pedido.
+     *
+     * A rotina antiga do CLP usa uma posição interna para saber onde guardar o pedido.
+     * Por isso este endpoint escreve a posição selecionada no DB9 offset 4 do CLP.
+     */
+    @PostMapping("/expedicao/preparar-posicao")
+    public ResponseEntity<String> prepararPosicao(@RequestBody Map<String, Object> payload) {
+        try {
+            String ipClp = asString(payload.get("ipClp"));
+            int posicao = asInt(payload.get("posicao"));
+
+            if (posicao < 1 || posicao > 12) {
+                return ResponseEntity.badRequest().body("Posição de expedição inválida.");
+            }
+
+            if (ipClp == null || ipClp.isBlank()) {
+                return ResponseEntity.badRequest().body("IP do CLP de Expedição não informado.");
+            }
+
+            boolean ok = prepararPosicaoNoClp(ipClp, posicao);
+            if (!ok) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body("Falha ao preparar posição no CLP de Expedição.");
+            }
+
+            // Guarda a mesma posição em memória para o restante do fluxo usar a referência correta.
+            SmartService.posicaoExpedicaoSolicitada = posicao;
+
+            return ResponseEntity.ok("Posição " + posicao + " preparada no CLP de Expedição.");
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body("Erro ao preparar posição da expedição: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Corrige duplicidade depois que um pedido finaliza.
+     *
+     * A regra é não-destrutiva:
+     * 1. a posição correta recebe o pedido novo;
+     * 2. qualquer outra posição com o mesmo pedido é considerada duplicada e limpa;
+     * 3. posições que possuem outros pedidos não são alteradas.
+     */
     @PostMapping("/expedicao/corrigir-duplicidade")
     public ResponseEntity<String> corrigirDuplicidade(@RequestBody Map<String, Object> payload) {
         try {
             String ipClp = asString(payload.get("ipClp"));
             int pedidoId = asInt(payload.get("pedidoId"));
             int posicaoCorreta = asInt(payload.get("posicaoCorreta"));
-            // O campo "snapshot" ainda pode vir no payload (compatibilidade com o front),
-            // mas não é mais utilizado: a reconciliação agora é não-destrutiva e não
-            // sobrescreve posições de outros pedidos.
 
             if (pedidoId <= 0) {
                 return ResponseEntity.badRequest().body("Pedido inválido para correção da expedição.");
@@ -43,19 +92,7 @@ public class ExpedicaoCorrecaoController {
                 return ResponseEntity.badRequest().body("IP do CLP de Expedição não informado.");
             }
 
-            // CORREÇÃO: reconciliação NÃO-DESTRUTIVA.
-            //
-            // Antes: todas as 12 posições eram "restauradas" a partir do snapshot. Quando o
-            // snapshot chegava vazio (sessionStorage limpo, outra aba, corrida com o botão
-            // "Pedido concluido"), valorSnapshot() devolvia 0 para todas as posições e o
-            // sistema APAGAVA os pedidos anteriores do banco e do CLP.
-            //
-            // Agora: só mexemos no que diz respeito a ESTE pedido.
-            //   1. A posição correta recebe o pedidoId (garantia de gravação).
-            //   2. Qualquer OUTRA posição que contenha o MESMO pedidoId é uma duplicata
-            //      e é limpa (banco + CLP).
-            //   3. Todas as demais posições ficam INTOCADAS - o snapshot não é mais usado
-            //      para sobrescrever nada.
+            // Percorre as 12 posições da expedição para garantir que a OP fique apenas onde deve ficar.
             for (int posicao = 1; posicao <= 12; posicao++) {
                 if (posicao == posicaoCorreta) {
                     salvarPosicaoNoBanco(posicao, pedidoId);
@@ -67,17 +104,17 @@ public class ExpedicaoCorrecaoController {
                     continue;
                 }
 
-                // Remove duplicata no banco (apenas se a posição contém ESTE pedido).
+                // Remove duplicidade no banco somente se aquela posição contém o mesmo pedido.
                 boolean duplicataNoBanco = expedicaoRepository.findByPosicaoExpedicao(posicao)
                         .map(exp -> exp.getOrderNumber() == pedidoId)
                         .orElse(false);
                 if (duplicataNoBanco) {
-                    salvarPosicaoNoBanco(posicao, 0); // valor 0 = deletar a linha
+                    salvarPosicaoNoBanco(posicao, 0);
                     System.out.println("Duplicata do pedido " + pedidoId
                             + " removida do banco na posição " + posicao + ".");
                 }
 
-                // Remove duplicata na memória do CLP (apenas se a word contém ESTE pedido).
+                // Remove duplicidade no CLP somente se a posição contém o mesmo pedido.
                 Integer valorNoClp = lerPosicaoNoClp(ipClp, posicao);
                 if (valorNoClp != null && valorNoClp == pedidoId) {
                     boolean limpo = escreverPosicaoNoClp(ipClp, posicao, 0);
@@ -86,7 +123,6 @@ public class ExpedicaoCorrecaoController {
                                 + " removida do CLP na posição " + posicao + ".");
                     }
                 }
-                // Se a posição contém outro pedido (ou está vazia), NÃO TOCAMOS nela.
             }
 
             return ResponseEntity.ok("Reconciliação da expedição concluída: pedido " + pedidoId
@@ -98,6 +134,37 @@ public class ExpedicaoCorrecaoController {
         }
     }
 
+    /**
+     * Escreve no CLP qual posição deve ser usada para guardar o pedido.
+     */
+    private boolean prepararPosicaoNoClp(String ipClp, int posicao) {
+        if (SmartService.readOnly) {
+            return true;
+        }
+
+        PlcConnector plcConnector = PlcConnectionManager.getConexao(ipClp);
+        if (plcConnector == null) {
+            return false;
+        }
+
+        try {
+            System.out.println("Preparando posição da Expedição no CLP. DB9:4 = " + posicao);
+
+            // Limpa flags antigas da expedição antes de escrever a nova posição.
+            plcConnector.writeBit(9, 2, 1, false);
+            plcConnector.writeBit(9, 2, 0, false);
+
+            // DB9 offset 4 é a posição onde o CLP deve guardar o pedido finalizado.
+            plcConnector.writeInt(9, 4, posicao);
+
+            return true;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    /** Salva uma posição no banco; valor zero remove a posição da tabela. */
     private void salvarPosicaoNoBanco(int posicao, int valor) {
         if (valor <= 0) {
             expedicaoRepository.findByPosicaoExpedicao(posicao).ifPresent(expedicaoRepository::delete);
@@ -111,9 +178,10 @@ public class ExpedicaoCorrecaoController {
         expedicaoRepository.save(exp);
     }
 
+    /** Lê uma posição da expedição diretamente da memória do CLP. */
     private Integer lerPosicaoNoClp(String ipClp, int posicao) {
         if (SmartService.readOnly) {
-            return null; // em modo simulação não há o que ler/limpar
+            return null;
         }
 
         PlcConnector plcConnector = PlcConnectionManager.getConexao(ipClp);
@@ -131,6 +199,11 @@ public class ExpedicaoCorrecaoController {
         }
     }
 
+    /**
+     * Escreve uma única posição da expedição no CLP.
+     *
+     * Offset = 6 + ((posição - 1) * 2), porque cada posição ocupa uma word de 2 bytes.
+     */
     private boolean escreverPosicaoNoClp(String ipClp, int posicao, int valor) {
         if (SmartService.readOnly) {
             return true;
@@ -153,7 +226,7 @@ public class ExpedicaoCorrecaoController {
         }
     }
 
-
+    /** Converte valores recebidos pelo JSON para inteiro com segurança. */
     private int asInt(Object valor) {
         if (valor == null) {
             return 0;
@@ -170,60 +243,8 @@ public class ExpedicaoCorrecaoController {
         }
     }
 
+    /** Converte valores recebidos pelo JSON para texto com segurança. */
     private String asString(Object valor) {
         return valor == null ? null : valor.toString();
     }
-    @PostMapping("/expedicao/preparar-posicao")
-public ResponseEntity<String> prepararPosicao(@RequestBody Map<String, Object> payload) {
-    try {
-        String ipClp = asString(payload.get("ipClp"));
-        int posicao = asInt(payload.get("posicao"));
-
-        if (posicao < 1 || posicao > 12) {
-            return ResponseEntity.badRequest().body("Posição de expedição inválida.");
-        }
-
-        if (ipClp == null || ipClp.isBlank()) {
-            return ResponseEntity.badRequest().body("IP do CLP de Expedição não informado.");
-        }
-
-        boolean ok = prepararPosicaoNoClp(ipClp, posicao);
-        if (!ok) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body("Falha ao preparar posição no CLP de Expedição.");
-        }
-
-        SmartService.posicaoExpedicaoSolicitada = posicao;
-
-        return ResponseEntity.ok("Posição " + posicao + " preparada no CLP de Expedição.");
-    } catch (Exception e) {
-        e.printStackTrace();
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body("Erro ao preparar posição da expedição: " + e.getMessage());
-    }
-}
-
-private boolean prepararPosicaoNoClp(String ipClp, int posicao) {
-    if (SmartService.readOnly) {
-        return true;
-    }
-
-    PlcConnector plcConnector = PlcConnectionManager.getConexao(ipClp);
-    if (plcConnector == null) {
-        return false;
-    }
-
-    try {
-        System.out.println("Preparando posição da Expedição no CLP. DB9:4 = " + posicao);
-
-        plcConnector.writeBit(9, 2, 1, false);
-        plcConnector.writeBit(9, 2, 0, false);
-        plcConnector.writeInt(9, 4, posicao);
-
-        return true;
-    } catch (Exception e) {
-        e.printStackTrace();
-        return false;
-    }
-}
 }
