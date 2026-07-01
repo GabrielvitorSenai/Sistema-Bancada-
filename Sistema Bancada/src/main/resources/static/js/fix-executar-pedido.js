@@ -31,48 +31,10 @@
         return snapshot;
     }
 
-    async function prepararPosicaoExpedicao(ipExpedicao, posicaoExpedicao) {
-        if (!ipExpedicao) {
-            alert("IP do CLP de Expedição não informado.");
-            return false;
-        }
-
-        if (posicaoExpedicao < 1 || posicaoExpedicao > 12) {
-            alert("Selecione uma posição válida de expedição antes de executar o pedido.");
-            return false;
-        }
-
-        try {
-            const response = await fetch("/expedicao/preparar-posicao", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    ipClp: ipExpedicao,
-                    posicao: posicaoExpedicao
-                })
-            });
-
-            const msg = await response.text();
-
-            if (!response.ok) {
-                alert(msg || "Erro ao preparar posição da expedição.");
-                return false;
-            }
-
-            console.log(msg || `Posição ${posicaoExpedicao} preparada na expedição.`);
-            return true;
-        } catch (error) {
-            console.error("Erro ao preparar posição da expedição:", error);
-            alert("Erro na comunicação ao preparar posição da expedição.");
-            return false;
-        }
-    }
-
     async function executarPedidoCorrigido() {
         const tipo = document.getElementById("tipoPedido")?.value;
         const tampa = document.getElementById("corTampa")?.value;
         const ipClp = document.getElementById("hostIpEstoque")?.value;
-        const ipExpedicao = document.getElementById("hostIpExpedicao")?.value;
 
         if (!ipClp) {
             alert("Por favor, informe o IP do CLP.");
@@ -146,16 +108,9 @@
 
         sessionStorage.setItem("posicaoExpedicaoAtual", String(posicaoExpedicao));
 
+        // Mantém a foto da expedição apenas como referência local/debug.
+        // Não chama mais /expedicao/preparar-posicao, porque o controller foi removido.
         await capturarSnapshotExpedicao();
-
-        const posicaoPreparada = await prepararPosicaoExpedicao(ipExpedicao, posicaoExpedicao);
-        if (!posicaoPreparada) {
-            sessionStorage.removeItem("pedidoIdAtual");
-            sessionStorage.removeItem("posicaoExpedicaoAtual");
-            sessionStorage.removeItem("pedidoEmCurso");
-            sessionStorage.removeItem("expedicaoSnapshotAntesPedido");
-            return false;
-        }
 
         const pedidoDTO = {
             id: pedidoId,
