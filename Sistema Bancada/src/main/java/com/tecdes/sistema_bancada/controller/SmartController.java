@@ -163,7 +163,9 @@ public class SmartController {
 
         int posExpedicao = pedidoDTO.getPosicaoExpedicao();
         if (posExpedicao < 1 || posExpedicao > 12) {
-            posExpedicao = posicoesExpedicaoPedidos.getOrDefault(idPedido, SmartService.posicaoExpedicaoSolicitada);
+            // Fallback seguro: usa apenas a posição vinculada ao ID do pedido quando ele iniciou.
+            // Não usa mais SmartService.posicaoExpedicaoSolicitada porque é global e pode estar velho.
+            posExpedicao = posicoesExpedicaoPedidos.getOrDefault(idPedido, 0);
         }
 
         if (posExpedicao < 1 || posExpedicao > 12) {
@@ -172,12 +174,8 @@ public class SmartController {
         }
 
         String ipClpExpedicao = pedidoDTO.getIpClp();
-        if (ipClpExpedicao == null || ipClpExpedicao.isBlank()) {
-            return ResponseEntity.badRequest().body("IP do CLP de Expedição não informado para finalização.");
-        }
 
-        // Mantém o estado compartilhado apontando para a mesma posição usada aqui,
-        // para que nenhum outro fluxo trabalhe com uma posição divergente.
+        // Mantém o estado compartilhado apontando para a mesma posição usada aqui.
         SmartService.posicaoExpedicaoSolicitada = posExpedicao;
 
         try {
@@ -188,28 +186,31 @@ public class SmartController {
                 pedidoRepository.save(pedido);
             }
 
-            // Agora sim grava a expedição no banco, porque o pedido terminou.
+            // Fonte de verdade: banco. A expedição é salva mesmo se a escrita no CLP falhar.
             Expedicao exp = expedicaoRepository.findByPosicaoExpedicao(posExpedicao)
                     .orElseGet(Expedicao::new);
             exp.setPosicaoExpedicao(posExpedicao);
             exp.setOrderNumber(idPedido.intValue());
             expedicaoRepository.save(exp);
 
-            // Agora sim escreve SOMENTE a posição finalizada no CLP.
-            // Não enviamos mais o bloco inteiro de 24 bytes, para não sobrescrever outras posições já existentes.
-            boolean expedicaoEnviada = enviarPosicaoExpedicaoParaClp(ipClpExpedicao, posExpedicao, idPedido.intValue());
-            if (!expedicaoEnviada) {
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                        .body("Pedido finalizado no banco, mas falhou ao gravar a posição " + posExpedicao
-                                + " no CLP " + ipClpExpedicao + ".");
+            // Escrita no CLP é apenas tentativa auxiliar. A tabela de posições do CLP é instável
+            // e pode ser zerada/regravada pelo programa do CLP, então falha aqui não pode gerar
+            // erro HTTP nem retentativa do front, pois isso causava gravação em posição antiga.
+            boolean expedicaoEnviada = false;
+            if (ipClpExpedicao != null && !ipClpExpedicao.isBlank()) {
+                expedicaoEnviada = enviarPosicaoExpedicaoParaClp(ipClpExpedicao, posExpedicao, idPedido.intValue());
+                if (!expedicaoEnviada) {
+                    System.out.println("AVISO: pedido " + idPedido + " salvo no banco na posição " + posExpedicao
+                            + ", mas a escrita auxiliar no CLP de Expedição falhou. Não será feita retentativa.");
+                }
             }
 
             posicoesExpedicaoPedidos.remove(idPedido);
             SmartService.pedidoEmCurso = false;
             SmartService.statusProducao = 1;
 
-            return ResponseEntity.ok("Pedido " + idPedido + " finalizado e posição " + posExpedicao
-                    + " gravada no CLP de Expedição.");
+            return ResponseEntity.ok("Pedido " + idPedido + " finalizado no banco na posição " + posExpedicao
+                    + (expedicaoEnviada ? " e escrita auxiliar enviada ao CLP." : ". Escrita no CLP ignorada/dispensável."));
         } catch (Exception e) {
             e.printStackTrace();
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -266,28 +267,23 @@ public class SmartController {
 
         int offset = 6 + ((posExpedicao - 1) * 2);
         try {
-            System.out.println("Gravando apenas a posição " + posExpedicao + " da Expedição no CLP. Offset DB9:"
+            System.out.println("Tentativa auxiliar: posição " + posExpedicao + " da Expedição no CLP. Offset DB9:"
                     + offset + " OP:" + orderNumber);
             plcConnector.writeInt(9, offset, orderNumber);
             return true;
         } catch (Exception e) {
-            System.out.println("ERRO: falha ao gravar posição pontual da Expedição no CLP.");
+            System.out.println("AVISO: falha na escrita auxiliar da Expedição no CLP.");
             e.printStackTrace();
             return false;
         }
     }
 
     private boolean enviarExpedicaoAtualParaClp(String ipClpExpedicao) {
-        List<Expedicao> listaExpedicao = expedicaoRepository.findAll();
-        byte[] byteBlocosArray = montarBytesExpedicao(listaExpedicao);
-
-        System.out.print("Bytes enviados ao CLP Expedição: ");
-        for (byte b : byteBlocosArray) {
-            System.out.printf("%02X ", b);
-        }
-        System.out.println();
-
-        return smartService.enviarBlocoBytesAoClp(ipClpExpedicao, 9, 6, byteBlocosArray, byteBlocosArray.length);
+        // A tabela de posições do CLP de Expedição é controlada pelo programa do próprio CLP
+        // e pode ser zerada/regravada a cada scan. Por segurança, esta sincronização manual
+        // não escreve mais o bloco inteiro no CLP; o banco continua sendo a fonte da verdade.
+        System.out.println("Envio da tabela completa da Expedição ao CLP ignorado: banco é a fonte da verdade.");
+        return true;
     }
 
     private byte[] montarBytesExpedicao(List<Expedicao> listaExpedicao) {
@@ -453,13 +449,8 @@ public class SmartController {
                 return ResponseEntity.badRequest().body("Endereço IP do CLP de Expedição não fornecido.");
             }
 
-            boolean ok = enviarExpedicaoAtualParaClp(ipClpExpedicao);
-            if (!ok) {
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                        .body("Erro: falha ao enviar dados ao CLP de Expedição.");
-            }
-
-            return ResponseEntity.ok("Bloco de inteiros enviado com sucesso para o CLP de Expedição.");
+            enviarExpedicaoAtualParaClp(ipClpExpedicao);
+            return ResponseEntity.ok("Tabela da Expedição mantida somente no banco. Envio ao CLP ignorado com segurança.");
         } catch (Exception e) {
             e.printStackTrace();
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
