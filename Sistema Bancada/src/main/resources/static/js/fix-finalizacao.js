@@ -1,6 +1,7 @@
 // Correção complementar de finalização do pedido.
-// A expedição só deve ser gravada no banco/CLP quando a produção terminar de verdade.
-// Este arquivo também observa os bytes do CLP de Expedição para concluir automaticamente.
+// A expedição só deve ser gravada no banco quando a produção terminar de verdade.
+// A tabela de posições do CLP não é usada como fonte de verdade, porque ela pode ser zerada
+// ou sobrescrita pelo próprio programa do CLP durante o scan.
 
 (function () {
     function bytesHexParaArray(data) {
@@ -40,31 +41,34 @@
         }
     }
 
+    function obterPedidoIdSeguro() {
+        try {
+            if (typeof obterPedidoIdAtual === "function") {
+                const id = obterPedidoIdAtual();
+                if (id) return id;
+            }
+        } catch (e) {
+            console.warn("Não foi possível obter ID pelo helper:", e);
+        }
+
+        const idSession = parseInt(sessionStorage.getItem("pedidoIdAtual"));
+        return idSession || 0;
+    }
+
     function obterPosicaoExpedicaoSelecionada() {
         const posSession = parseInt(sessionStorage.getItem("posicaoExpedicaoAtual"));
-        if (posSession) return posSession;
+        if (posSession >= 1 && posSession <= 12) return posSession;
 
         const el = document.getElementById("posExpedicao");
         if (el) {
             const posTela = parseInt(el.value) || 0;
-            if (posTela) return posTela;
+            if (posTela >= 1 && posTela <= 12) return posTela;
         }
 
-        if (window.posicaoExpedicaoFinalizadaDetectada) {
-            return parseInt(window.posicaoExpedicaoFinalizadaDetectada) || 0;
-        }
-
+        // Importante: não usa mais posição lida do CLP como fallback.
+        // O CLP pode manter posição antiga, principalmente a posição 1, e isso fazia
+        // a OP nova ser salva na posição errada quando a requisição era repetida.
         return 0;
-    }
-
-    function obterSnapshotExpedicao() {
-        try {
-            const salvo = sessionStorage.getItem("expedicaoSnapshotAntesPedido");
-            return salvo ? JSON.parse(salvo) : {};
-        } catch (e) {
-            console.warn("Snapshot da expedição inválido:", e);
-            return {};
-        }
     }
 
     function atualizarVisualExpedicaoDepois() {
@@ -93,16 +97,13 @@
     }
 
     function corrigirDuplicidadeExpedicao(pedidoId, posicaoExpedicao, ipExpedicao) {
-        const snapshot = obterSnapshotExpedicao();
-
         return fetch("/expedicao/corrigir-duplicidade", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 pedidoId: pedidoId,
                 posicaoCorreta: posicaoExpedicao,
-                ipClp: ipExpedicao,
-                snapshot: snapshot
+                ipClp: ipExpedicao
             })
         })
             .then(async response => {
@@ -121,9 +122,6 @@
     }
 
     function agendarReconciliacoesExpedicao(pedidoId, posicaoExpedicao, ipExpedicao) {
-        // A guarda física do bloco pode levar bem mais que alguns segundos após a
-        // finalização, e é nesse momento que o CLP sobrescreve a posição 1 da sua
-        // tabela. As últimas passadas cobrem essa janela.
         const delays = [900, 2500, 4500, 8000, 15000, 30000];
         let concluidas = 0;
 
@@ -144,7 +142,7 @@
     function finalizarPedidoCorrigido() {
         if (typeof pedidoFinalizado !== "undefined" && pedidoFinalizado) return;
 
-        const pedidoId = obterPedidoIdAtual();
+        const pedidoId = obterPedidoIdSeguro();
         const ipExpedicao = document.getElementById("hostIpExpedicao")?.value;
         const posicaoExpedicao = obterPosicaoExpedicaoSelecionada();
 
@@ -153,13 +151,8 @@
             return;
         }
 
-        if (!ipExpedicao) {
-            console.warn("finalizarPedido: IP do CLP de Expedição não informado.");
-            return;
-        }
-
         if (!posicaoExpedicao || posicaoExpedicao < 1 || posicaoExpedicao > 12) {
-            console.warn("finalizarPedido: posição de expedição inválida:", posicaoExpedicao);
+            console.warn("finalizarPedido: posição de expedição inválida. Finalização não será feita por fallback do CLP.");
             return;
         }
 
@@ -180,7 +173,7 @@
             body: JSON.stringify({
                 id: pedidoId,
                 statusOrderProduction: "concluido",
-                ipClp: ipExpedicao,
+                ipClp: ipExpedicao || "",
                 posicaoExpedicao: posicaoExpedicao
             })
         })
@@ -188,16 +181,13 @@
                 const texto = await response.text();
                 if (!response.ok) {
                     console.error("Erro ao finalizar pedido:", texto);
-                    alert(texto || "Erro ao finalizar pedido e gravar expedição no CLP.");
+                    alert(texto || "Erro ao finalizar pedido.");
                     if (typeof pedidoFinalizado !== "undefined") pedidoFinalizado = false;
                     return;
                 }
 
-                console.log(texto || "Pedido finalizado e expedição gravada no CLP.");
-
-                // A rotina antiga do service ainda pode reagir aos bits do CLP por alguns segundos.
-                // Por isso reconciliamos mais de uma vez, mantendo apenas a posição selecionada com o pedido novo.
-                agendarReconciliacoesExpedicao(pedidoId, posicaoExpedicao, ipExpedicao);
+                console.log(texto || "Pedido finalizado e expedição gravada no banco.");
+                agendarReconciliacoesExpedicao(pedidoId, posicaoExpedicao, ipExpedicao || "");
             })
             .catch(err => {
                 console.error("Erro ao finalizar pedido:", err);
@@ -211,8 +201,11 @@
             if (!pedidoEstaEmCursoNaTela()) return;
             if (typeof pedidoFinalizado !== "undefined" && pedidoFinalizado) return;
 
-            const pedidoId = obterPedidoIdAtual();
+            const pedidoId = obterPedidoIdSeguro();
             if (!pedidoId) return;
+
+            const posicaoSelecionada = obterPosicaoExpedicaoSelecionada();
+            if (posicaoSelecionada < 1 || posicaoSelecionada > 12) return;
 
             const byteArray = bytesHexParaArray(data);
             if (byteArray.length < 46) return;
@@ -225,28 +218,15 @@
             const numeroOpExp = word(byteArray, 30);
             const posicaoGuardada = word(byteArray, 38);
             const opGuardada = word(byteArray, 44);
-            const posicaoSelecionada = obterPosicaoExpedicaoSelecionada();
-            const valorNaPosicaoSelecionada = posicaoSelecionada >= 1 && posicaoSelecionada <= 12
-                ? word(byteArray, 6 + ((posicaoSelecionada - 1) * 2))
-                : 0;
 
-            // Só finaliza com evidência de que o CLP está tratando ESTE pedido.
-            // Flags genéricas (finishOp/adicionarExpedicao sozinhas) ficam "sujas"
-            // do pedido anterior e disparavam a finalização logo no início do
-            // pedido novo - salvando a expedição antes da hora.
+            // A tabela de posições do CLP não entra mais na decisão, pois ela é instável.
+            // Finaliza somente quando o CLP confirma a OP em curso por campos de OP/flags.
             const finalizou =
                 opGuardada === pedidoId ||
-                valorNaPosicaoSelecionada === pedidoId ||
                 (numeroOpExp === pedidoId && ((recebidoOpExp && finishOpExp) || adicionarExpedicao));
 
             if (finalizou) {
-                // A regra do sistema é respeitar a posição selecionada na execução.
-                // A posição lida do CLP só é usada como fallback quando não houver posição selecionada válida.
-                if (posicaoSelecionada >= 1 && posicaoSelecionada <= 12) {
-                    window.posicaoExpedicaoFinalizadaDetectada = posicaoSelecionada;
-                } else if (posicaoGuardada >= 1 && posicaoGuardada <= 12) {
-                    window.posicaoExpedicaoFinalizadaDetectada = posicaoGuardada;
-                }
+                window.posicaoExpedicaoFinalizadaDetectada = posicaoSelecionada;
 
                 console.log("Finalização detectada pelo CLP4", {
                     pedidoId,
@@ -254,7 +234,6 @@
                     posicaoSelecionada,
                     posicaoGuardada,
                     opGuardada,
-                    valorNaPosicaoSelecionada,
                     recebidoOpExp,
                     finishOpExp,
                     adicionarExpedicao,
@@ -282,8 +261,6 @@
     }
 
     // Este arquivo carrega depois de smart.js, então a instalação é direta:
-    // finalizarPedido passa a ser a versão corrigida e o processamento do CLP4
-    // ganha o observador de finalização.
     window.finalizarPedido = finalizarPedidoCorrigido;
 
     const processarOriginal = window.processarDadosClp;
