@@ -17,6 +17,7 @@ import org.springframework.web.client.RestTemplate;
 
 import com.tecdes.sistema_bancada.config.ApiUrlConfig;
 import com.tecdes.sistema_bancada.model.Estoque;
+import com.tecdes.sistema_bancada.model.Expedicao;
 import com.tecdes.sistema_bancada.repository.EstoqueRepository;
 import com.tecdes.sistema_bancada.repository.ExpedicaoRepository;
 
@@ -994,15 +995,15 @@ public class SmartService {
                             "ERRO [Adicionar Expedição]: Atualização da Flag RecebidoExpedicao [DB9:2.0] para TRUE");
                 }
 
-                // A persistência do pedido (banco + posição no CLP) é feita apenas pelo
-                // endpoint /finalizar-pedido-producao, que grava na posição selecionada na
-                // execução do pedido. Este handler roda a cada ciclo de leitura do CLP e,
-                // quando também gravava, o pedido acabava salvo em duas posições sempre que
-                // posicaoExpedicaoSolicitada divergia da posição selecionada (ou quando a
-                // flag adicionarExpedicao ainda estava ativa de um pedido anterior).
+                // A persistência do pedido no banco é feita apenas pelo endpoint
+                // /finalizar-pedido-producao, que grava na posição selecionada na execução.
+                // Aqui, no momento em que o CLP confirma a guarda física, conferimos a
+                // tabela de posições do CLP: a rotina interna dele grava a OP também na
+                // posição 1, sobrescrevendo o que estava lá. Restauramos essas posições
+                // com o valor salvo no banco e garantimos a OP apenas na posição correta.
                 System.out.println("Expedição confirmou guarda da OP " + opGuardadoExpedicao
-                        + " na posição " + posicaoGuardadoExpedicao
-                        + " (persistência feita na finalização do pedido).");
+                        + " na posição " + posicaoGuardadoExpedicao + ".");
+                reconciliarTabelaExpedicaoNoClp(plcConnectorExp);
             }
 
         }
@@ -1087,6 +1088,54 @@ public class SmartService {
             // }
         }
 
+    }
+
+    /**
+     * Garante que a OP recém-guardada exista apenas na posição selecionada dentro
+     * da tabela de posições do CLP de Expedição (DB9, words a partir do offset 6).
+     *
+     * A rotina interna do CLP também grava a OP em uma posição própria (tipicamente
+     * a posição 1), sobrescrevendo o valor que estava lá. Cada posição divergente é
+     * restaurada com o valor salvo no banco, sem alterar posições de outros pedidos.
+     * Usa a leitura do ciclo atual (orderExpedicao), evitando novas leituras do CLP.
+     */
+    private void reconciliarTabelaExpedicaoNoClp(PlcConnector plcConnectorExp) {
+        int op = opGuardadoExpedicao;
+        int posicaoCorreta = posicaoExpedicaoSolicitada;
+
+        if (op <= 0 || posicaoCorreta < 1 || posicaoCorreta > 12) {
+            return;
+        }
+
+        try {
+            // Garante a OP na posição selecionada.
+            if (orderExpedicao[posicaoCorreta - 1] != op) {
+                plcConnectorExp.writeInt(9, 6 + ((posicaoCorreta - 1) * 2), op);
+                System.out.println("Expedição: OP " + op + " gravada na posição selecionada "
+                        + posicaoCorreta + ".");
+            }
+
+            // Restaura as demais posições que o CLP sobrescreveu com a mesma OP.
+            for (int pos = 1; pos <= 12; pos++) {
+                if (pos == posicaoCorreta || orderExpedicao[pos - 1] != op) {
+                    continue;
+                }
+
+                int valorBanco = expedicaoRepository.findByPosicaoExpedicao(pos)
+                        .map(Expedicao::getOrderNumber)
+                        .orElse(0);
+                if (valorBanco == op) {
+                    valorBanco = 0; // nunca mantém a mesma OP em duas posições
+                }
+
+                plcConnectorExp.writeInt(9, 6 + ((pos - 1) * 2), valorBanco);
+                System.out.println("Expedição: posição " + pos + " restaurada para " + valorBanco
+                        + " (CLP havia sobrescrito com a OP " + op + ").");
+            }
+        } catch (Exception e) {
+            System.out.println("ERRO [Adicionar Expedição]: reconciliação da tabela de posições do CLP");
+            e.printStackTrace();
+        }
     }
 
     //***************************************************************

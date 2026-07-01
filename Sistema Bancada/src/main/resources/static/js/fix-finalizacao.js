@@ -79,7 +79,12 @@
         }, 800);
     }
 
-    function limparPedidoAtualFinalizado() {
+    function limparPedidoAtualFinalizado(pedidoId) {
+        // Se um novo pedido já foi iniciado enquanto as reconciliações rodavam,
+        // não apaga os dados dele.
+        const idAtual = parseInt(sessionStorage.getItem("pedidoIdAtual"));
+        if (idAtual && pedidoId && idAtual !== pedidoId) return;
+
         sessionStorage.removeItem("pedidoEmCurso");
         sessionStorage.removeItem("pedidoIdAtual");
         sessionStorage.removeItem("posicaoExpedicaoAtual");
@@ -116,7 +121,10 @@
     }
 
     function agendarReconciliacoesExpedicao(pedidoId, posicaoExpedicao, ipExpedicao) {
-        const delays = [900, 2500, 4500];
+        // A guarda física do bloco pode levar bem mais que alguns segundos após a
+        // finalização, e é nesse momento que o CLP sobrescreve a posição 1 da sua
+        // tabela. As últimas passadas cobrem essa janela.
+        const delays = [900, 2500, 4500, 8000, 15000, 30000];
         let concluidas = 0;
 
         delays.forEach(delay => {
@@ -125,7 +133,7 @@
                     .finally(() => {
                         concluidas++;
                         if (concluidas === delays.length) {
-                            limparPedidoAtualFinalizado();
+                            limparPedidoAtualFinalizado(pedidoId);
                             atualizarVisualExpedicaoDepois();
                         }
                     });
