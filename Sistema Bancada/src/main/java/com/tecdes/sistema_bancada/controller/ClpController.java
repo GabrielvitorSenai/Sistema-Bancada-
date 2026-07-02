@@ -51,12 +51,12 @@ public class ClpController {
                 PlcConnector plcConnector = PlcConnectionManager.getConexao(ip);
                 if (plcConnector == null) {
                     System.err.println("Erro ao obter conexão com o CLP: " + ip);
-                    return; // ignora esse CLP e continua com os demais
+                    return;
                 }
 
                 PlcReaderDB task = null;
                 PlcReaderMultDB taskMult = null;
-                long delayMs = 600; // valor padrão
+                long delayMs = 600;
 
                 switch (nome.toLowerCase()) {
                     case "estoque" -> {
@@ -66,14 +66,14 @@ public class ClpController {
                                 new PlcReaderMultDB.PlcReadRequest(9, 0, 111),
                                 new PlcReaderMultDB.PlcReadRequest(6, 0, 60),
                                 new PlcReaderMultDB.PlcReadRequest(0, 0, 0),
-                                new PlcReaderMultDB.PlcReadRequest(0, 0, 0), // Ignorado (db == 0)
+                                new PlcReaderMultDB.PlcReadRequest(0, 0, 0),
                                 new PlcReaderMultDB.PlcReadRequest(0, 0, 0),
                                 dados -> {
                                     ClpController.dadosClp1 = dados;
                                     smartService.clpEstoque(ip, dados);
                                     atualizarCache("estoque", dados);
                                 });
-                        delayMs = 600; // Delay personalizado para ESTOQUE
+                        delayMs = 600;
                     }
 
                     case "processo" -> {
@@ -92,7 +92,7 @@ public class ClpController {
                                 new PlcReaderMultDB.PlcReadRequest(57, 0, 9),
                                 new PlcReaderMultDB.PlcReadRequest(30, 16, 16),
                                 new PlcReaderMultDB.PlcReadRequest(600, 14, 16),
-                                new PlcReaderMultDB.PlcReadRequest(92, 2, 16), // Ignorado (db == 0)
+                                new PlcReaderMultDB.PlcReadRequest(92, 2, 16),
                                 new PlcReaderMultDB.PlcReadRequest(60, 20, 16),
                                 dados -> {
                                     ClpController.dadosClp3 = dados;
@@ -105,7 +105,18 @@ public class ClpController {
                     case "expedicao" -> {
                         task = new PlcReaderDB(plcConnector, nome, 9, 0, 48, dados -> {
                             ClpController.dadosClp4 = dados;
-                            smartService.clpExpedicao(ip, dados);
+
+                            // IMPORTANTE:
+                            // A leitura da expedição continua sendo enviada para a tela via SSE,
+                            // mas o SmartService só processa/escreve no CLP enquanto existe pedido
+                            // em curso. Quando não há pedido em curso, processar a expedição fazia
+                            // o sistema tentar espelhar o banco no CLP a cada ciclo, enquanto o CLP
+                            // escrevia outro valor de volta. Isso causava a oscilação entre dois
+                            // números na posição da expedição.
+                            if (SmartService.pedidoEmCurso) {
+                                smartService.clpExpedicao(ip, dados);
+                            }
+
                             atualizarCache("expedicao", dados);
                         });
                         delayMs = 600;
@@ -117,13 +128,6 @@ public class ClpController {
                     }
                 }
 
-                // if (task != null) {
-                //     // A leitura só será iniciada novamente após o término do processamento + delayMs
-                //     ScheduledFuture<?> future = leituraExecutor.scheduleWithFixedDelay(
-                //             task, 0, delayMs, TimeUnit.MILLISECONDS
-                //     );
-                //     leituraFutures.put(nome, future);
-                // }
                 Runnable toSchedule = task != null ? task : taskMult;
                 if (toSchedule != null) {
                     ScheduledFuture<?> future = leituraExecutor.scheduleWithFixedDelay(
@@ -148,16 +152,11 @@ public class ClpController {
     @GetMapping("/dados/{clp}")
     public ResponseEntity<String> getDados(@PathVariable String clp) {
         byte[] dados = switch (clp.toLowerCase()) {
-            case "clp1" ->
-                dadosClp1;
-            case "clp2" ->
-                dadosClp2;
-            case "clp3" ->
-                dadosClp3;
-            case "clp4" ->
-                dadosClp4;
-            default ->
-                null;
+            case "clp1" -> dadosClp1;
+            case "clp2" -> dadosClp2;
+            case "clp3" -> dadosClp3;
+            case "clp4" -> dadosClp4;
+            default -> null;
         };
 
         if (dados == null) {
@@ -181,8 +180,6 @@ public class ClpController {
         leituraFutures.clear();
         PlcConnectionManager.encerrarTodasAsConexoes();
 
-        // Salvar os eventos acumulados
-        //smartService.salvarEventosEmArquivo();
         return ResponseEntity.ok("Leituras interrompidas e eventos registrados.");
     }
 
@@ -196,7 +193,6 @@ public class ClpController {
                 while (true) {
                     byte[] dados = switch (bancada.toLowerCase()) {
                         case "estoque" -> {
-                            // Adiciona dois bytes ao final
                             byte[] extendidoEst = new byte[dadosClp1.length + 6];
                             System.arraycopy(dadosClp1, 0, extendidoEst, 0, dadosClp1.length);
                             extendidoEst[extendidoEst.length - 6] = SmartService.statusEstoque;
@@ -207,14 +203,10 @@ public class ClpController {
                             extendidoEst[extendidoEst.length - 1] = (byte) (SmartService.pedidoEmCurso ? 1 : 0);
                             yield extendidoEst;
                         }
-                        case "processo" ->
-                            dadosClp2;
-                        case "montagem" ->
-                            dadosClp3;
-                        case "expedicao" ->
-                            dadosClp4;
-                        default ->
-                            null;
+                        case "processo" -> dadosClp2;
+                        case "montagem" -> dadosClp3;
+                        case "expedicao" -> dadosClp4;
+                        default -> null;
                     };
 
                     if (dados != null) {
@@ -257,17 +249,13 @@ public class ClpController {
 
             try (Socket socket = new Socket()) {
                 SocketAddress address = new InetSocketAddress(ip, 102);
-                socket.connect(address, 2000); // timeout 2 segundos
-
-                // Se conectou, consideramos que é um CLP Siemens
+                socket.connect(address, 2000);
                 isClpOnline = true;
             } catch (IOException e) {
-                // Porta 102 não está aberta, ou não é um CLP válido
                 isClpOnline = false;
             }
 
             System.out.println(nome + ": " + isClpOnline);
-
             resultados.put(nome, isClpOnline);
         });
 
@@ -279,7 +267,7 @@ public class ClpController {
         smartService.resetarStatus();
         return ResponseEntity.ok("Status zerados com sucesso.");
     }
-    
+
     @PostMapping("/smart/readonly")
     public ResponseEntity<String> setReadOnly(@RequestParam boolean value) {
         smartService.setReadOnly(value);
@@ -290,5 +278,4 @@ public class ClpController {
     public boolean getReadOnly() {
         return smartService.isReadOnly();
     }
-
 }
