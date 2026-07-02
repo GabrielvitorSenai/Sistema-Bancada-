@@ -107,16 +107,13 @@ public class ClpController {
                             ClpController.dadosClp4 = dados;
 
                             // IMPORTANTE:
-                            // A leitura da expedição continua sendo enviada para a tela via SSE,
-                            // mas o SmartService só processa/escreve no CLP enquanto existe pedido
-                            // em curso. Quando não há pedido em curso, processar a expedição fazia
-                            // o sistema tentar espelhar o banco no CLP a cada ciclo, enquanto o CLP
-                            // escrevia outro valor de volta. Isso causava a oscilação entre dois
-                            // números na posição da expedição.
-                            if (SmartService.pedidoEmCurso) {
-                                smartService.clpExpedicao(ip, dados);
-                            }
-
+                            // A expedição agora é SOMENTE LIDA aqui para atualizar a tela.
+                            // Não chamamos mais smartService.clpExpedicao(), porque esse método
+                            // também escrevia flags/posições no CLP. Como o programa do CLP também
+                            // escreve nessa mesma área, isso gerava a oscilação entre dois números
+                            // e podia alterar a posição 1. A gravação oficial da expedição fica
+                            // centralizada no /finalizar-pedido-producao, escrevendo apenas a
+                            // posição selecionada do pedido.
                             atualizarCache("expedicao", dados);
                         });
                         delayMs = 600;
