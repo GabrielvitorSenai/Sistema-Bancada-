@@ -481,7 +481,11 @@
             }
         }
 
-        // Função para atualizar a tabela Expedição na base de dados
+        // Função para atualizar a tabela Expedição na base de dados.
+        // Envia SOMENTE as posições cujo valor foi realmente alterado pelo operador
+        // em relação ao que foi carregado (input.dataset.valorOriginal, definido em
+        // pintarGestorExpedicao). Reenviar as 12 posições incondicionalmente faria
+        // o "Atualizar Expedição" também regravar posições que ninguém tocou.
         async function updateExpedicao() {
             const expedicaoInputs = document.querySelectorAll(".grid.expedicao .input-expedicao");
             const payload = {};
@@ -490,10 +494,18 @@
                 const posicao = index + 1;
                 const partes = input.value.split(":");
                 const valor = parseInt(partes[1]); // Pega só o número após os dois pontos
-                if (!isNaN(valor)) {
-                    payload["OP:" + posicao] = valor;
-                }
+                if (isNaN(valor)) return;
+
+                const valorOriginal = parseInt(input.dataset.valorOriginal);
+                if (!isNaN(valorOriginal) && valorOriginal === valor) return;
+
+                payload["OP:" + posicao] = valor;
             });
+
+            if (Object.keys(payload).length === 0) {
+                alert("Nenhuma posição foi alterada.");
+                return;
+            }
 
             try {
                 const response = await fetch("/expedicao/salvar", {
