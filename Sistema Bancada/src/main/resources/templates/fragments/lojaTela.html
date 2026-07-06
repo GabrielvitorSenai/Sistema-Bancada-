@@ -767,11 +767,22 @@
             document.getElementById("btnCancelarEdicao").style.display = "none";
         }
 
+        // Limpa o formulário e os blocos montados, deixando a tela pronta para um
+        // pedido novo (usado após salvar/editar e ao cancelar uma edição).
+        function resetarFormularioNovoPedido() {
+            document.getElementById("numeroPedido").value = "";
+            document.getElementById("tipoPedido").value = "simples";
+            document.getElementById("corTampa").value = "1";
+            const posExpedicao = document.getElementById("posExpedicao");
+            if (posExpedicao) posExpedicao.value = "0";
+            document.getElementById("pedido-id").innerText = "";
+            renderBlocos();
+        }
+
         // Ação do botão "Cancelar edição": sai do modo de edição e limpa o formulário.
         function cancelarEdicaoPedido() {
             sairModoEdicaoPedido();
-            document.getElementById("numeroPedido").value = "";
-            document.getElementById("pedido-id").innerText = "";
+            resetarFormularioNovoPedido();
         }
 
         function salvarPedido() {
@@ -827,9 +838,9 @@
                 return editandoId ? editandoId : res.json();
             })
                 .then(id => {
-                    document.getElementById("pedido-id").innerText = `Pedido #${id}`;
-                    alert(editandoId ? "Pedido atualizado com sucesso!" : "Pedido enviado com sucesso!");
+                    alert(editandoId ? `Pedido #${id} atualizado com sucesso!` : `Pedido #${id} enviado com sucesso!`);
                     if (editandoId) sairModoEdicaoPedido();
+                    resetarFormularioNovoPedido();
                     if (typeof listarPedidos === "function") listarPedidos();
                 })
                 .catch(err => {
