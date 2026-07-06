@@ -740,6 +740,9 @@ function pintarGestorExpedicao(data) {
     expedicaoInputs.forEach((input, index) => {
         const valor = parseInt(data[`P${index + 1}`]) || 0;
         input.value = "OP:" + valor;
+        // Guarda o valor carregado do banco para que "Atualizar Expedição" só
+        // envie as posições realmente editadas pelo operador (ver updateExpedicao).
+        input.dataset.valorOriginal = String(valor);
     });
 }
 
