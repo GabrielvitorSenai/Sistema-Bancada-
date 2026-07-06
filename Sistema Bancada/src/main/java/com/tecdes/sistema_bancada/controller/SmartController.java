@@ -49,6 +49,26 @@ public class SmartController {
     @Autowired
     private PedidoRepository pedidoRepository;
 
+    /**
+     * Resolve o número de OP gravado no CLP e usado para acompanhar o pedido:
+     * o número informado pelo operador (campo "Número do Pedido"), quando
+     * numérico e válido, ou o id gerado automaticamente como alternativa.
+     */
+    private int resolverNumeroOp(Pedido pedido) {
+        String numero = pedido.getNumeroPedido();
+        if (numero != null && !numero.isBlank()) {
+            try {
+                int valor = Integer.parseInt(numero.trim());
+                if (valor > 0) {
+                    return valor;
+                }
+            } catch (NumberFormatException ignored) {
+                // Número do pedido não é numérico: usa o id gerado automaticamente.
+            }
+        }
+        return pedido.getId().intValue();
+    }
+
     @PostMapping("/iniciar-pedido")
     public ResponseEntity<String> iniciarPedido(@RequestBody PedidoDTO pedidoDTO) {
         Long idPedido = pedidoDTO.getId();
@@ -56,6 +76,18 @@ public class SmartController {
         int tampa = pedidoDTO.getTampa();
         String ipClp = pedidoDTO.getIpClp();
         List<BlocoDTO> pedido = pedidoDTO.getBlocos();
+
+        if (idPedido == null) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body("Erro: pedido não informado para iniciar produção.");
+        }
+
+        Pedido pedidoEntidade = pedidoRepository.findById(idPedido).orElse(null);
+        if (pedidoEntidade == null) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body("Erro: pedido " + idPedido + " não encontrado para iniciar produção.");
+        }
+        int numeroOp = resolverNumeroOp(pedidoEntidade);
 
         // Posição de guardar na expedição (1..12). Se vier 0/inválida, usa a 1ª livre.
         int posExpedicao = pedidoDTO.getPosicaoExpedicao();
@@ -67,7 +99,7 @@ public class SmartController {
                     .body("Erro: não há posição livre na expedição para guardar o pedido.");
         }
 
-        System.out.println("Iniciando pedido ID: " + idPedido);
+        System.out.println("Iniciando pedido ID: " + idPedido + " (número de OP: " + numeroOp + ")");
         System.out.println("Pedido recebido para IP do CLP: " + ipClp);
         System.out.println("Pedido tipo: " + tipo);
         System.out.println("Posição de expedição (guardar ao finalizar): " + posExpedicao);
@@ -83,7 +115,7 @@ public class SmartController {
         }
 
         try {
-            byte[] bytePedidoArray = montarPedidoParaCLP(pedido, idPedido, posExpedicao);
+            byte[] bytePedidoArray = montarPedidoParaCLP(pedido, numeroOp, posExpedicao);
 
             System.out.print("Bytes do pedido em hexadecimal: ");
             for (byte b : bytePedidoArray) {
@@ -127,13 +159,11 @@ public class SmartController {
 
             // 3) Guarda a posição escolhida apenas em memória para usar na finalização.
             // Não grava a Expedição no banco/CLP aqui, porque o produto ainda não terminou.
-            if (idPedido != null) {
-                posicoesExpedicaoPedidos.put(idPedido, posExpedicao);
-            }
+            posicoesExpedicaoPedidos.put(idPedido, posExpedicao);
 
-            // Registra qual pedido está em curso: sinais do CLP que não se referirem a
+            // Registra qual OP está em curso: sinais do CLP que não se referirem a
             // este número de OP são tratados como resíduo do pedido anterior e ignorados.
-            SmartService.pedidoAtualId = idPedido != null ? idPedido.intValue() : 0;
+            SmartService.pedidoAtualId = numeroOp;
 
             // 4) Inicia o pedido sem recalcular a posição de expedição.
             boolean inicioOk = iniciarExecucaoPedidoNaPosicao(ipClp, posExpedicao);
@@ -142,7 +172,11 @@ public class SmartController {
                         .body("Erro: não foi possível acionar a flag de início no CLP.");
             }
 
-            return ResponseEntity.ok("Pedido enviado e iniciado no CLP com sucesso.");
+            // O número de OP vai no header para o front acompanhar a finalização
+            // usando o MESMO número gravado no CLP (operador ou id automático).
+            return ResponseEntity.ok()
+                    .header("X-Numero-Op", String.valueOf(numeroOp))
+                    .body("Pedido enviado e iniciado no CLP com sucesso.");
 
         } catch (IllegalStateException e) {
             System.out.println("Pedido bloqueado por estoque: " + e.getMessage());
@@ -180,17 +214,21 @@ public class SmartController {
 
         try {
             Optional<Pedido> pedidoOptional = pedidoRepository.findById(idPedido);
+            // Fallback para o id caso o pedido tenha sido removido do banco: mantém o
+            // comportamento anterior de finalizar a expedição mesmo nesse cenário raro.
+            int numeroOp = idPedido.intValue();
             if (pedidoOptional.isPresent()) {
                 Pedido pedido = pedidoOptional.get();
                 pedido.setStatusOrderProduction("concluido");
                 pedidoRepository.save(pedido);
+                numeroOp = resolverNumeroOp(pedido);
             }
 
             // Fonte de verdade: banco. A expedição é salva mesmo se a escrita no CLP falhar.
             Expedicao exp = expedicaoRepository.findByPosicaoExpedicao(posExpedicao)
                     .orElseGet(Expedicao::new);
             exp.setPosicaoExpedicao(posExpedicao);
-            exp.setOrderNumber(idPedido.intValue());
+            exp.setOrderNumber(numeroOp);
             expedicaoRepository.save(exp);
 
             // Escrita no CLP é apenas tentativa auxiliar. A tabela de posições do CLP é instável
@@ -198,7 +236,7 @@ public class SmartController {
             // erro HTTP nem retentativa do front, pois isso causava gravação em posição antiga.
             boolean expedicaoEnviada = false;
             if (ipClpExpedicao != null && !ipClpExpedicao.isBlank()) {
-                expedicaoEnviada = enviarPosicaoExpedicaoParaClp(ipClpExpedicao, posExpedicao, idPedido.intValue());
+                expedicaoEnviada = enviarPosicaoExpedicaoParaClp(ipClpExpedicao, posExpedicao, numeroOp);
                 if (!expedicaoEnviada) {
                     System.out.println("AVISO: pedido " + idPedido + " salvo no banco na posição " + posExpedicao
                             + ", mas a escrita auxiliar no CLP de Expedição falhou. Não será feita retentativa.");
@@ -209,7 +247,9 @@ public class SmartController {
             SmartService.pedidoEmCurso = false;
             SmartService.statusProducao = 1;
 
-            return ResponseEntity.ok("Pedido " + idPedido + " finalizado no banco na posição " + posExpedicao
+            return ResponseEntity.ok()
+                    .header("X-Numero-Op", String.valueOf(numeroOp))
+                    .body("Pedido " + numeroOp + " finalizado no banco na posição " + posExpedicao
                     + (expedicaoEnviada ? " e escrita auxiliar enviada ao CLP." : ". Escrita no CLP ignorada/dispensável."));
         } catch (Exception e) {
             e.printStackTrace();
@@ -476,7 +516,7 @@ public class SmartController {
         return ResponseEntity.ok(posicaoLivre);
     }
 
-    private byte[] montarPedidoParaCLP(List<BlocoDTO> pedido, Long idPedido, int posicaoExpedicao) {
+    private byte[] montarPedidoParaCLP(List<BlocoDTO> pedido, int numeroOp, int posicaoExpedicao) {
         int[] dados = new int[30];
         Set<Integer> posicoesUsadas = new HashSet<>();
         int andares = pedido.size();
@@ -512,7 +552,7 @@ public class SmartController {
             dados[indexBase + 8] = 0;
         }
 
-        dados[27] = idPedido != null ? idPedido.intValue() : 0;
+        dados[27] = numeroOp;
         dados[28] = andares;
         dados[29] = posicaoExpedicao;
 
@@ -531,7 +571,7 @@ public class SmartController {
             System.out.println();
         }
 
-        System.out.println("numeroPedidoEst...............: " + idPedido);
+        System.out.println("numeroPedidoEst...............: " + numeroOp);
         System.out.println("andares.......................: " + andares);
         System.out.println("posicaoExpedicaoEst...........: " + posicaoExpedicao);
 

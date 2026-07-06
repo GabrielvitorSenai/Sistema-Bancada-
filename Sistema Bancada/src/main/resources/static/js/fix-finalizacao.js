@@ -55,6 +55,19 @@
         return idSession || 0;
     }
 
+    // Número de OP realmente gravado no CLP ao iniciar o pedido (número informado
+    // pelo operador ou o id automático — ver X-Numero-Op em /iniciar-pedido). É
+    // ESTE número que aparece nos bytes do CLP4, não necessariamente o id do banco,
+    // então a detecção de finalização precisa comparar com ele.
+    function obterNumeroOpSeguro() {
+        const numeroOp = parseInt(sessionStorage.getItem("opNumeroAtual"));
+        if (numeroOp) return numeroOp;
+
+        // Compatibilidade com pedidos iniciados antes desta correção (sem o número
+        // de OP salvo na sessão): cai de volta para o id do pedido.
+        return obterPedidoIdSeguro();
+    }
+
     function obterPosicaoExpedicaoSelecionada() {
         const posSession = parseInt(sessionStorage.getItem("posicaoExpedicaoAtual"));
         if (posSession >= 1 && posSession <= 12) return posSession;
@@ -91,6 +104,7 @@
         sessionStorage.removeItem("pedidoIdAtual");
         sessionStorage.removeItem("posicaoExpedicaoAtual");
         sessionStorage.removeItem("expedicaoSnapshotAntesPedido");
+        sessionStorage.removeItem("opNumeroAtual");
         window.posicaoExpedicaoFinalizadaDetectada = null;
     }
 
@@ -163,8 +177,8 @@
             if (!pedidoEstaEmCursoNaTela()) return;
             if (typeof pedidoFinalizado !== "undefined" && pedidoFinalizado) return;
 
-            const pedidoId = obterPedidoIdSeguro();
-            if (!pedidoId) return;
+            const numeroOp = obterNumeroOpSeguro();
+            if (!numeroOp) return;
 
             const posicaoSelecionada = obterPosicaoExpedicaoSelecionada();
             if (posicaoSelecionada < 1 || posicaoSelecionada > 12) return;
@@ -184,14 +198,14 @@
             // A tabela de posições do CLP não entra mais na decisão, pois ela é instável.
             // Finaliza somente quando o CLP confirma a OP em curso por campos de OP/flags.
             const finalizou =
-                opGuardada === pedidoId ||
-                (numeroOpExp === pedidoId && ((recebidoOpExp && finishOpExp) || adicionarExpedicao));
+                opGuardada === numeroOp ||
+                (numeroOpExp === numeroOp && ((recebidoOpExp && finishOpExp) || adicionarExpedicao));
 
             if (finalizou) {
                 window.posicaoExpedicaoFinalizadaDetectada = posicaoSelecionada;
 
                 console.log("Finalização detectada pelo CLP4", {
-                    pedidoId,
+                    numeroOp,
                     numeroOpExp,
                     posicaoSelecionada,
                     posicaoGuardada,

@@ -14,6 +14,7 @@ let statusExpedicao = 0;
 let statusProducao = 0;
 let pedidoEmCurso = 0;
 let pedidoFinalizado = false; // trava one-shot: evita finalizar o pedido em loop a cada leitura
+let statusEstoqueAnterior = 0; // usado para detectar a borda de subida (novo pedido entrando no Estoque)
 
 console.info("Painel Linha Didática 4.0 iniciado");
 
@@ -174,11 +175,18 @@ function processarDadosClp(clp, data) {
             //     iniciarContador();
             // }
 
-            if (statusEstoque === 1 && statusProcesso === 0 && statusMontagem === 0 && statusExpedicao === 0) {
+            // Dispara na borda de subida do Estoque (0/2 -> 1), não mais exigindo que
+            // Processo/Montagem/Expedição estejam parados no mesmo instante: em uma
+            // esteira com estações encadeadas, por volta do momento em que a leitura
+            // chega o próximo pedido pode já ter avançado outra estação, e a exigência
+            // de todas zeradas ao mesmo tempo fazia o contador não iniciar para alguns
+            // pedidos.
+            if (statusEstoque === 1 && statusEstoqueAnterior !== 1) {
                 pedidoEmCurso = true;
                 pedidoFinalizado = false; // novo ciclo: rearma a finalização
                 iniciarContador();
             }
+            statusEstoqueAnterior = statusEstoque;
 
             // Variáveis booleanas
             atualizarCampoBooleano("var1-1", (byteArray[0] & 0b00000001) !== 0);
