@@ -6,6 +6,7 @@ import java.util.List;
 public class PedidoDTO {
 
     private Long id;
+    private String numeroPedido;
     private String tipo;
     private int tampa;
     private int posicaoExpedicao; // slot de guardar na expedição (1..12); 0 = automático
@@ -22,6 +23,14 @@ public class PedidoDTO {
 
     public void setId(Long id) {
         this.id = id;
+    }
+
+    public String getNumeroPedido() {
+        return numeroPedido;
+    }
+
+    public void setNumeroPedido(String numeroPedido) {
+        this.numeroPedido = numeroPedido;
     }
 
     public String getTipo() {

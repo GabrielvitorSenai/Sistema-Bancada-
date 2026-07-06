@@ -28,21 +28,24 @@
                         return;
                     }
 
-                    data.forEach((pedido, index) => {
+                    data.forEach((pedido) => {
                         const pedidoDiv = document.createElement("div");
                         pedidoDiv.classList.add("pedido");
 
-                        // let pedidoHTML = `<h3>Pedido ${index + 1} - Tipo: ${pedido.tipo} - Status: ${pedido.statusOrderProduction}</h3>`;
-
                         const corTampa = corTextoBlocoTampa(pedido.tampa || pedido.corTampa); // mantém compatibilidade com os campos retornados
+                        const numeroPedido = pedido.numeroPedido ? pedido.numeroPedido : `#${pedido.id}`;
 
-                        let pedidoHTML = `<h3 style="margin-bottom: 5px;">Pedido: <span style="font-weight: normal;">${index + 1}</span></h3> 
+                        let pedidoHTML = `<h3 style="margin-bottom: 5px;">Pedido: <span style="font-weight: normal;">${numeroPedido}</span></h3>
                                           <p><strong>Tipo:</strong> ${pedido.tipo}</p>
                                           <p><strong>Cor da tampa: <span style="color: ${corTampa.css}; font-weight: bold;">${corTampa.nome}</span></p>
                                           <p><strong>Status:</strong> ${pedido.statusOrderProduction}</p>`;
 
                         if (pedido.statusOrderProduction && pedido.statusOrderProduction.toLowerCase() === "pendente") {
-                            pedidoHTML += `<button onclick="carregarPedidoPendente(${pedido.id})" style="margin-top: 10px; margin-bottom: 10px;">Enviar para produção</button>`;
+                            pedidoHTML += `<div style="display:flex; gap:8px; flex-wrap:wrap; margin-top: 10px; margin-bottom: 10px;">
+                                <button onclick="carregarPedidoPendente(${pedido.id})">Enviar para produção</button>
+                                <button onclick="editarPedido(${pedido.id})">Editar</button>
+                                <button class="btn-stop" onclick="excluirPedido(${pedido.id})">Excluir</button>
+                            </div>`;
                         }
 
                         pedidoDiv.innerHTML = pedidoHTML;
@@ -108,6 +111,7 @@
             fetch(`/listar-pedido/${id}`)
                 .then(res => res.json())
                 .then(pedido => {
+                    sairModoEdicaoPedido();
                     carregarPedidoNaTela(pedido);
                 })
                 .catch(() => alert("Erro ao carregar pedido para execução."));
@@ -115,7 +119,9 @@
 
         function carregarPedidoNaTela(pedido) {
             showTela('lojaTela');
+            document.getElementById("numeroPedido").value = pedido.numeroPedido || "";
             document.getElementById("tipoPedido").value = pedido.tipo;
+            document.getElementById("corTampa").value = pedido.tampa || pedido.corTampa || 1;
             renderBlocos(); // Gera os blocos na interface
 
             document.getElementById("pedido-id").innerText = "Pedido #" + pedido.id;
@@ -131,8 +137,8 @@
                     changePedidoView(n);
 
                     bloco.laminas.forEach((lamina, j) => {
-                        document.getElementById(`l${j + 1}-color-${n}`).value = lamina.cor;
-                        document.getElementById(`l${j + 1}-pattern-${n}`).value = lamina.padrao;
+                        document.getElementById(`l${j + 1}-color-${n}`).value = lamina.cor || "";
+                        document.getElementById(`l${j + 1}-pattern-${n}`).value = lamina.padrao || "";
                     });
 
                     changePedidoView(n);
@@ -140,6 +146,35 @@
 
                 revisarPedido(); // Atualiza visual
             }, 200);
+        }
+
+        // Carrega um pedido pendente na tela da Loja em modo de edição, permitindo
+        // alterar tipo, número, tampa e blocos antes de salvar as alterações.
+        function editarPedido(id) {
+            fetch(`/listar-pedido/${id}`)
+                .then(res => res.json())
+                .then(pedido => {
+                    carregarPedidoNaTela(pedido);
+                    window.editandoPedidoId = pedido.id;
+                    document.getElementById("btnSalvarPedido").textContent = "Salvar Alterações";
+                    document.getElementById("btnCancelarEdicao").style.display = "";
+                })
+                .catch(() => alert("Erro ao carregar pedido para edição."));
+        }
+
+        // Exclui um pedido ainda não iniciado (status "pendente").
+        function excluirPedido(id) {
+            if (!confirm("Deseja realmente excluir este pedido?")) return;
+
+            fetch(`/api/pedidos/${id}`, { method: "DELETE" })
+                .then(async res => {
+                    if (!res.ok) {
+                        const msg = await res.text();
+                        throw new Error(msg || "Erro ao excluir pedido.");
+                    }
+                    listarPedidos();
+                })
+                .catch(err => alert(err.message || "Erro ao excluir pedido."));
         }
 
         // A execução do pedido carregado é feita pela tela Loja, através da

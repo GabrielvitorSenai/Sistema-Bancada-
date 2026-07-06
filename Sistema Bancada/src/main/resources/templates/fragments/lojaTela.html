@@ -2,6 +2,10 @@
 <div th:fragment="lojaTela" id="lojaTela" class="tela">
     <div class="tipoBlock">
         <div class="input-box">
+            <label for="numeroPedido" style="text-align: left; padding-top: 5px;">Número do Pedido:</label>
+            <input type="text" id="numeroPedido" placeholder="Ex: 12345">
+        </div>
+        <div class="input-box">
             <label for="tipoPedido" style="text-align: left; padding-top: 5px;">Tipo de Pedido:</label>
             <select id="tipoPedido" onchange="renderBlocos()">
                 <option value="simples">Simples (1 bloco)</option>
@@ -140,8 +144,9 @@
     </div>
 
     <div class="tipoBlock">
-        <button onclick="salvarPedido()">Salvar Pedido</button>
+        <button id="btnSalvarPedido" onclick="salvarPedido()">Salvar Pedido</button>
         <button id="btnExecutarPedido" onclick="executarPedido()">Executar Pedido</button>
+        <button id="btnCancelarEdicao" onclick="cancelarEdicaoPedido()" style="display:none;">Cancelar edição</button>
     </div>
     <p id="avisoEstoque" style="text-align:center; color:#c00; font-weight:bold; margin:6px 0;"></p>
     <script>
@@ -193,6 +198,7 @@
                             <label for="l1-color-1">Cor Lâmina 1</label>
                             <select name="l1-color-1" id="l1-color-${nBloco}" disabled onchange="changePedidoView(${nBloco}, this.value)">
                                 <option value="" hidden selected>Selecione</option>
+                                <option value="">Nenhuma</option>
                                 <option value="1">Vermelho</option>
                                 <option value="2">Azul</option>
                                 <option value="3">Amarelo</option>
@@ -217,6 +223,7 @@
                             <label for="l2-color-1">Cor Lâmina 2</label>
                             <select name="l2-color-1" id="l2-color-${nBloco}" disabled onchange="changePedidoView(${nBloco}, this.value)">
                                 <option value="" hidden selected>Selecione</option>
+                                <option value="">Nenhuma</option>
                                 <option value="1">Vermelho</option>
                                 <option value="2">Azul</option>
                                 <option value="3">Amarelo</option>
@@ -241,6 +248,7 @@
                             <label for="l3-color-1">Cor Lâmina 3</label>
                             <select name="l3-color-1" id="l3-color-${nBloco}" disabled onchange="changePedidoView(${nBloco}, this.value)">
                                 <option value="" hidden selected>Selecione</option>
+                                <option value="">Nenhuma</option>
                                 <option value="1">Vermelho</option>
                                 <option value="2">Azul</option>
                                 <option value="3">Amarelo</option>
@@ -747,12 +755,33 @@
             lamina3.src = newSrc3;
         }
 
+        // ID do pedido em edição (definido por editarPedido, na tela de Pedidos).
+        // null/undefined significa que o formulário está criando um pedido novo.
+        window.editandoPedidoId = window.editandoPedidoId || null;
+
+        // Restaura os controles do formulário ao estado de criação (usado tanto ao
+        // sair de uma edição quanto ao carregar um pedido só para produção).
+        function sairModoEdicaoPedido() {
+            window.editandoPedidoId = null;
+            document.getElementById("btnSalvarPedido").textContent = "Salvar Pedido";
+            document.getElementById("btnCancelarEdicao").style.display = "none";
+        }
+
+        // Ação do botão "Cancelar edição": sai do modo de edição e limpa o formulário.
+        function cancelarEdicaoPedido() {
+            sairModoEdicaoPedido();
+            document.getElementById("numeroPedido").value = "";
+            document.getElementById("pedido-id").innerText = "";
+        }
+
         function salvarPedido() {
+            const numeroPedido = document.getElementById("numeroPedido").value;
             const tipo = document.getElementById("tipoPedido").value;
             const tampa = document.getElementById("corTampa").value;
             const blocos = document.querySelectorAll(".bloco");
 
             const pedido = {
+                numeroPedido: numeroPedido,
                 tipo: tipo,
                 tampa: tampa,
                 blocos: [],
@@ -782,19 +811,30 @@
                 });
             });
 
-            fetch("/salvar-pedidos", {
-                method: "POST",
+            const editandoId = window.editandoPedidoId;
+            const url = editandoId ? `/api/pedidos/${editandoId}` : "/salvar-pedidos";
+            const method = editandoId ? "PUT" : "POST";
+
+            fetch(url, {
+                method: method,
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(pedido)
-            }).then(res => res.json())
+            }).then(async res => {
+                if (!res.ok) {
+                    const msg = await res.text();
+                    throw new Error(msg || "Erro ao salvar pedido.");
+                }
+                return editandoId ? editandoId : res.json();
+            })
                 .then(id => {
                     document.getElementById("pedido-id").innerText = `Pedido #${id}`;
-                    alert("Pedido enviado com sucesso!");
+                    alert(editandoId ? "Pedido atualizado com sucesso!" : "Pedido enviado com sucesso!");
+                    if (editandoId) sairModoEdicaoPedido();
                     if (typeof listarPedidos === "function") listarPedidos();
                 })
                 .catch(err => {
                     console.error("Erro na requisição:", err);
-                    alert("Erro ao enviar pedido.");
+                    alert(err.message || "Erro ao enviar pedido.");
                 });
         }
 
