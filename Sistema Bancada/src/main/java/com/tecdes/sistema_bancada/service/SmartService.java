@@ -1136,10 +1136,26 @@ public class SmartService {
 
             for (int pos = 1; pos <= 12; pos++) {
                 if (orderExpedicao[pos - 1] != desejado[pos - 1]) {
-                    plcConnectorExp.writeInt(9, 6 + ((pos - 1) * 2), desejado[pos - 1]);
+                    int offset = 6 + ((pos - 1) * 2);
+                    plcConnectorExp.writeInt(9, offset, desejado[pos - 1]);
                     System.out.println("Expedição: posição " + pos + " corrigida de "
                             + orderExpedicao[pos - 1] + " para " + desejado[pos - 1]
                             + " (banco é a referência).");
+
+                    // Confere se a correção realmente ficou gravada. Uma divergência aqui não
+                    // é causada por este código (acabamos de escrever o valor certo) — é sinal
+                    // de que outro sistema também está escrevendo na mesma memória do CLP.
+                    try {
+                        int lido = plcConnectorExp.readInt(9, offset);
+                        if (lido != desejado[pos - 1]) {
+                            System.out.println("AVISO: posição " + pos + " da Expedição deveria conter OP "
+                                    + desejado[pos - 1] + " mas a leitura de conferência retornou " + lido
+                                    + ". Possível outro sistema escrevendo na mesma memória do CLP.");
+                        }
+                    } catch (Exception e) {
+                        System.out.println("Não foi possível conferir a correção da posição " + pos
+                                + " da Expedição: " + e.getMessage());
+                    }
                 }
             }
         } catch (Exception e) {
