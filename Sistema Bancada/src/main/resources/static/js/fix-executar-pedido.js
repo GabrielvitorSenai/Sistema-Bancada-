@@ -136,8 +136,16 @@
                 sessionStorage.removeItem("posicaoExpedicaoAtual");
                 sessionStorage.removeItem("pedidoEmCurso");
                 sessionStorage.removeItem("expedicaoSnapshotAntesPedido");
+                sessionStorage.removeItem("opNumeroAtual");
                 return false;
             }
+
+            // Número de OP realmente gravado no CLP (número do pedido informado pelo
+            // operador, ou o id automático quando não informado). A finalização
+            // detectada pelo CLP4 precisa comparar com ESTE número, não com o id do
+            // banco, senão pedidos com número customizado nunca seriam reconhecidos.
+            const numeroOp = response.headers.get("X-Numero-Op");
+            if (numeroOp) sessionStorage.setItem("opNumeroAtual", numeroOp);
 
             sessionStorage.setItem("pedidoEmCurso", "true");
             alert("Pedido executado com sucesso!");
@@ -170,6 +178,7 @@
         sessionStorage.removeItem("pedidoIdAtual");
         sessionStorage.removeItem("posicaoExpedicaoAtual");
         sessionStorage.removeItem("expedicaoSnapshotAntesPedido");
+        sessionStorage.removeItem("opNumeroAtual");
 
         fetch("/smart/reset-status", { method: "POST" })
             .then(response => {
