@@ -310,11 +310,32 @@ public class SmartController {
             System.out.println("Tentativa auxiliar: posição " + posExpedicao + " da Expedição no CLP. Offset DB9:"
                     + offset + " OP:" + orderNumber);
             plcConnector.writeInt(9, offset, orderNumber);
+            conferirEscritaExpedicao(plcConnector, posExpedicao, offset, orderNumber);
             return true;
         } catch (Exception e) {
             System.out.println("AVISO: falha na escrita auxiliar da Expedição no CLP.");
             e.printStackTrace();
             return false;
+        }
+    }
+
+    /**
+     * Lê de volta o valor gravado para conferir se ficou como esperado. Uma
+     * divergência aqui não é causada pelo nosso próprio código (acabamos de
+     * escrever o valor certo) — é sinal de que outro sistema também está
+     * escrevendo na mesma memória do CLP.
+     */
+    private void conferirEscritaExpedicao(PlcConnector plcConnector, int posExpedicao, int offset, int valorEsperado) {
+        try {
+            int lido = plcConnector.readInt(9, offset);
+            if (lido != valorEsperado) {
+                System.out.println("AVISO: posição " + posExpedicao + " da Expedição deveria conter OP "
+                        + valorEsperado + " mas a leitura de conferência retornou " + lido
+                        + ". Possível outro sistema escrevendo na mesma memória do CLP.");
+            }
+        } catch (Exception e) {
+            System.out.println("Não foi possível conferir a escrita da posição " + posExpedicao + " da Expedição: "
+                    + e.getMessage());
         }
     }
 
