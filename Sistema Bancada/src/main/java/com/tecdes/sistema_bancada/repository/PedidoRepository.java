@@ -29,4 +29,7 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long> {
      * Exemplo de uso: pegar o último pedido simples ainda pendente.
      */
     Optional<Pedido> findTopByTipoAndStatusOrderProductionOrderByTimeStampDesc(String tipo, String statusOrderProduction);
+
+    /** Usado para validar que o número do pedido informado na Loja é único. */
+    Optional<Pedido> findByNumeroPedido(String numeroPedido);
 }
