@@ -32,21 +32,16 @@ public class LojaController {
     @Autowired
     private PedidoRepository pedidoRepository;
 
-    @PostMapping("/salvar-pedidos")
-    @ResponseBody
-    public ResponseEntity<Long> receberPedido(@RequestBody PedidoDTO pedidoDTO) {
-        Pedido pedido = new Pedido();
-        pedido.setTipo(pedidoDTO.getTipo());
-        pedido.setTampa(pedidoDTO.getTampa());
-        pedido.setStatusOrderProduction(pedidoDTO.getStatusOrderProduction());
-        pedido.setTimeStamp(pedidoDTO.getTimeStamp());
-
+    /**
+     * Converte a lista de blocos do DTO em entidades Bloco/Lamina prontas para
+     * serem associadas a um Pedido (usado tanto na criação quanto na edição).
+     */
+    private List<Bloco> montarBlocos(List<BlocoDTO> blocosDTO) {
         List<Bloco> blocos = new ArrayList<>();
 
-        for (BlocoDTO blocoDTO : pedidoDTO.getBlocos()) {
+        for (BlocoDTO blocoDTO : blocosDTO) {
             Bloco bloco = new Bloco();
             bloco.setCor(blocoDTO.getCorBloco());
-            bloco.setPedido(pedido);
 
             List<Lamina> laminas = new ArrayList<>();
             for (LaminaDTO laminaDTO : blocoDTO.getLaminas()) {
@@ -61,7 +56,19 @@ public class LojaController {
             blocos.add(bloco);
         }
 
-        pedido.setBlocos(blocos);
+        return blocos;
+    }
+
+    @PostMapping("/salvar-pedidos")
+    @ResponseBody
+    public ResponseEntity<Long> receberPedido(@RequestBody PedidoDTO pedidoDTO) {
+        Pedido pedido = new Pedido();
+        pedido.setNumeroPedido(pedidoDTO.getNumeroPedido());
+        pedido.setTipo(pedidoDTO.getTipo());
+        pedido.setTampa(pedidoDTO.getTampa());
+        pedido.setStatusOrderProduction(pedidoDTO.getStatusOrderProduction());
+        pedido.setTimeStamp(pedidoDTO.getTimeStamp());
+        pedido.setBlocos(montarBlocos(pedidoDTO.getBlocos()));
 
         // Primeira gravação para gerar o identificador
         pedido = pedidoRepository.save(pedido);
@@ -93,13 +100,43 @@ public class LojaController {
 
     @DeleteMapping("/api/pedidos/{id}")
     @ResponseBody
-    public String excluirPedido(@PathVariable Long id) {
-        Optional<Pedido> pedido = pedidoRepository.findById(id);
-        if (pedido.isPresent()) {
-            pedidoRepository.deleteById(id);
-            return "DELETADO";
+    public ResponseEntity<String> excluirPedido(@PathVariable Long id) {
+        Optional<Pedido> pedidoOptional = pedidoRepository.findById(id);
+        if (pedidoOptional.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("NAO ENCONTRADO");
         }
-        return "NAO ENCONTRADO";
+
+        Pedido pedido = pedidoOptional.get();
+        if (!"pendente".equalsIgnoreCase(pedido.getStatusOrderProduction())) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body("Somente pedidos pendentes (ainda não iniciados) podem ser excluídos.");
+        }
+
+        pedidoRepository.deleteById(id);
+        return ResponseEntity.ok("DELETADO");
+    }
+
+    @PutMapping("/api/pedidos/{id}")
+    @ResponseBody
+    public ResponseEntity<String> editarPedido(@PathVariable Long id, @RequestBody PedidoDTO pedidoDTO) {
+        Optional<Pedido> pedidoOptional = pedidoRepository.findById(id);
+        if (pedidoOptional.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Pedido não encontrado.");
+        }
+
+        Pedido pedido = pedidoOptional.get();
+        if (!"pendente".equalsIgnoreCase(pedido.getStatusOrderProduction())) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body("Somente pedidos pendentes (ainda não iniciados) podem ser editados.");
+        }
+
+        pedido.setNumeroPedido(pedidoDTO.getNumeroPedido());
+        pedido.setTipo(pedidoDTO.getTipo());
+        pedido.setTampa(pedidoDTO.getTampa());
+        pedido.setBlocos(montarBlocos(pedidoDTO.getBlocos()));
+
+        pedidoRepository.save(pedido);
+        return ResponseEntity.ok("ATUALIZADO");
     }
 
     @GetMapping("/listar-pedido/{id}")

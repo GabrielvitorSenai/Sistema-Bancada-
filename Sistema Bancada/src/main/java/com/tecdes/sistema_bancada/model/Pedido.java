@@ -29,6 +29,9 @@ public class Pedido {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    /** Número do pedido informado manualmente na Loja para identificação. */
+    private String numeroPedido;
+
     /** Tipo do pedido: simples, duplo ou triplo. */
     private String tipo;
 
@@ -71,6 +74,14 @@ public class Pedido {
 
     public void setId(Long id) {
         this.id = id;
+    }
+
+    public String getNumeroPedido() {
+        return numeroPedido;
+    }
+
+    public void setNumeroPedido(String numeroPedido) {
+        this.numeroPedido = numeroPedido;
     }
 
     public String getTipo() {

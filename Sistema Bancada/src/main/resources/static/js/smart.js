@@ -28,7 +28,6 @@ document.addEventListener("DOMContentLoaded", function () {
 
 document.addEventListener("DOMContentLoaded", function () {
     const inputPrincipal = document.getElementById("hostIp");
-    //restaurarValores();
 
     inputPrincipal.addEventListener("blur", function () {
         const baseIp = inputPrincipal.value.trim();
@@ -44,6 +43,15 @@ document.addEventListener("DOMContentLoaded", function () {
             }
         }
     });
+
+    // Restaura o endereço configurado na sessão anterior; sem nada salvo,
+    // mantém o IP padrão da bancada (10.74.241.10) já preenchido no HTML e
+    // calcula os IPs derivados das estações a partir dele.
+    if (sessionStorage.getItem("hostIp")) {
+        restaurarValores();
+    } else if (inputPrincipal.value.trim()) {
+        inputPrincipal.dispatchEvent(new Event("blur"));
+    }
 
     // Reaplica preferências visuais armazenadas
     ["Estoque", "Processo", "Montagem", "Expedicao"].forEach(nome => {
