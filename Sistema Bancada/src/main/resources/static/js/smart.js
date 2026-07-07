@@ -155,8 +155,13 @@ function processarDadosClp(clp, data) {
 
         // Tratamento dos dados da estação de estoque
         if (clp === "clp1") {
+            // Cores REAIS (em tempo real) sentidas pela bancada, no bloco de cor do
+            // estoque (offset 143). Antes a grade era pintada com o offset 68, que é
+            // a cor CONFIGURADA/enviada — por isso uma posição esvaziada continuava
+            // aparecendo com a cor antiga (ex.: azul) em vez de "vazio".
+            const arrayColorEstoque = byteArray.slice(143, 143 + 28);
             for (let i = 0; i < 28; i++) {
-                const corValor = byteArray[68 + i];
+                const corValor = arrayColorEstoque[i];
                 const celula = document.getElementById(`estoque-${i + 1}`);
                 if (celula) {
                     const corFundo = getCor(corValor);
@@ -165,7 +170,6 @@ function processarDadosClp(clp, data) {
                     celula.style.color = corFonte;
                 }
             }
-            const arrayColorEstoque = byteArray.slice(143, 143 + 28);
             const arrayEixoVerticalValue = byteArray.slice(117, 117 + 4);
             const arrayEixoRotativoValue = byteArray.slice(121, 121 + 4);
 
@@ -176,8 +180,6 @@ function processarDadosClp(clp, data) {
             // Preenchimento dos campos de leitura na tela
             document.getElementById('atuadorLinearEst').value = eixoVertical.toFixed(2);
             document.getElementById('atuadorRotativoEst').value = eixoRotativo.toFixed(2);
-
-            applyColors(arrayColorEstoque);
 
 
             iniciarPedido = (byteArray[62] & 0b00000001) !== 0;
@@ -423,11 +425,12 @@ function processarDadosClp(clp, data) {
 
         // CLP4 - Expedição
         else if (clp === "clp4") {
-            // A grade do Magazine de Expedição NÃO é pintada pelos bytes do CLP:
-            // o banco é a fonte da verdade e a grade é atualizada por
-            // carregarValoresExpedicao/pintarGradeExpedicao (veja o intervalo no
-            // final deste arquivo). A rotina interna do CLP escreve valores
-            // transitórios na própria tabela e a tela não deve refletir isso.
+            // A grade do Magazine de Expedição na Linha reflete, EM TEMPO REAL, a
+            // tabela de posições do CLP de Expedição (bytes 6..29, uma word por
+            // posição). É apenas exibição: o que está fisicamente/na memória do CLP
+            // (inclusive o que outra pessoa gravou) aparece aqui, sem gravar no
+            // banco. O banco continua sendo o registro dos pedidos do operador.
+            pintarGradeExpedicaoAoVivo(byteArray);
 
             // A detecção de fim de operação é feita pelo observador instalado em
             // fix-finalizacao.js (detectarFinalizacaoPeloClp4 + verificação por status),
@@ -735,6 +738,9 @@ async function buscarExpedicaoDoBanco() {
 }
 
 // Pinta a grade do Magazine de Expedição (tela Linha) com os dados do banco.
+// Obs.: a grade da Linha agora é atualizada AO VIVO pelo CLP
+// (pintarGradeExpedicaoAoVivo); esta versão por banco é mantida apenas para
+// referência/uso pontual, mas não é mais chamada no ciclo periódico.
 function pintarGradeExpedicao(data) {
     for (let i = 1; i <= 12; i++) {
         const celula = document.getElementById(`expedicao-${i}`);
@@ -742,6 +748,22 @@ function pintarGradeExpedicao(data) {
         const valor = parseInt(data[`P${i}`]) || 0;
         celula.textContent = valor;
         celula.style.backgroundColor = valor === 0 ? "#ccffcc" : "#ffcccc";
+        celula.style.color = "black";
+    }
+}
+
+// Pinta a grade do Magazine de Expedição (tela Linha) com os valores LIDOS EM
+// TEMPO REAL do CLP de Expedição. Cada posição ocupa uma word (2 bytes) a partir
+// do byte 6: posição p -> bytes [6+(p-1)*2, 7+(p-1)*2]. É apenas exibição do que
+// está no CLP (inclusive escrito por outra pessoa) — não grava nada no banco.
+function pintarGradeExpedicaoAoVivo(byteArray) {
+    for (let pos = 1; pos <= 12; pos++) {
+        const celula = document.getElementById(`expedicao-${pos}`);
+        if (!celula) continue;
+        const base = 6 + (pos - 1) * 2;
+        const op = ((byteArray[base] || 0) << 8) | (byteArray[base + 1] || 0);
+        celula.textContent = op;
+        celula.style.backgroundColor = op === 0 ? "#ccffcc" : "#ffcccc";
         celula.style.color = "black";
     }
 }
@@ -772,25 +794,28 @@ function pintarGestorExpedicao(data) {
     });
 }
 
-// Carrega as posições salvas da expedição (banco) e atualiza todas as telas.
+// Carrega as posições salvas da expedição (banco) e atualiza o select da Loja e
+// os inputs da Gestão. A grade da Linha reflete o CLP ao vivo quando conectado
+// (pintarGradeExpedicaoAoVivo, no tratamento do clp4); só usamos o banco como
+// referência na grade quando a bancada NÃO está conectada (sem leitura ao vivo).
 async function carregarValoresExpedicao() {
     const data = await buscarExpedicaoDoBanco();
     if (!data) return null;
 
-    pintarGradeExpedicao(data);
+    if (typeof conectado === "undefined" || !conectado) {
+        pintarGradeExpedicao(data);
+    }
     pintarSelectExpedicao(data);
     pintarGestorExpedicao(data);
     return data;
 }
 
-// O banco é a fonte da verdade das posições da expedição: a grade da Linha e o
-// select da Loja são atualizados periodicamente a partir dele. Os inputs da
-// Gestão só são preenchidos nas cargas explícitas, para não atrapalhar a
-// edição manual.
+// O select "Guardar na Expedição" da Loja continua vindo do banco (posições que
+// o operador já reservou). A grade da Linha é atualizada ao vivo pelo CLP, não
+// aqui. Os inputs da Gestão só são preenchidos nas cargas explícitas.
 setInterval(async () => {
     const data = await buscarExpedicaoDoBanco();
     if (data) {
-        pintarGradeExpedicao(data);
         pintarSelectExpedicao(data);
     }
 }, 3000);
