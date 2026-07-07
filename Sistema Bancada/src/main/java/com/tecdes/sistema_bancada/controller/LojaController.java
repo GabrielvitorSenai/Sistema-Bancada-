@@ -42,7 +42,7 @@ public class LojaController {
     @ResponseBody
     public ResponseEntity<Long> receberPedido(@RequestBody PedidoDTO pedidoDTO) {
         Pedido pedido = pedidoService.criarPedido(pedidoDTO);
-        logAcao("📥 POST /salvar-pedidos — pedido criado", pedido);
+        logAcao("POST /salvar-pedidos — pedido criado", pedido);
         return ResponseEntity.ok(pedido.getId());
     }
 
@@ -51,7 +51,7 @@ public class LojaController {
     @ResponseBody
     public ResponseEntity<Pedido> criarPedidoRest(@RequestBody PedidoDTO pedidoDTO) {
         Pedido pedido = pedidoService.criarPedido(pedidoDTO);
-        logAcao("📥 POST /api/pedidos — pedido criado", pedido);
+        logAcao("POST /api/pedidos — pedido criado", pedido);
         return ResponseEntity.status(HttpStatus.CREATED).body(pedido);
     }
 
@@ -63,7 +63,7 @@ public class LojaController {
     @ResponseBody
     public List<Pedido> listarPedidos() {
         List<Pedido> pedidos = pedidoService.listar();
-        logAcao("📋 GET /listar-pedidos — " + pedidos.size() + " pedido(s) encontrado(s)");
+        logAcao("GET /listar-pedidos — " + pedidos.size() + " pedido(s) encontrado(s)");
         return pedidos;
     }
 
@@ -72,7 +72,7 @@ public class LojaController {
     @ResponseBody
     public List<Pedido> listarPedidosRest() {
         List<Pedido> pedidos = pedidoService.listar();
-        logAcao("📋 GET /api/pedidos — " + pedidos.size() + " pedido(s) encontrado(s)");
+        logAcao("GET /api/pedidos — " + pedidos.size() + " pedido(s) encontrado(s)");
         return pedidos;
     }
 
@@ -81,11 +81,11 @@ public class LojaController {
     public ResponseEntity<Pedido> buscarPedidoPorId(@PathVariable Long id) {
         return pedidoService.buscarPorId(id)
                 .map(pedido -> {
-                    logAcao("🔍 GET /listar-pedido/" + id + " — pedido consultado", pedido);
+                    logAcao("GET /listar-pedido/" + id + " — pedido consultado", pedido);
                     return ResponseEntity.ok(pedido);
                 })
                 .orElseGet(() -> {
-                    logAcao("🔍 GET /listar-pedido/" + id + " — pedido não encontrado");
+                    logAcao("GET /listar-pedido/" + id + " — pedido não encontrado");
                     return ResponseEntity.notFound().build();
                 });
     }
@@ -98,7 +98,7 @@ public class LojaController {
     @ResponseBody
     public ResponseEntity<String> editarPedido(@PathVariable Long id, @RequestBody PedidoDTO pedidoDTO) {
         Pedido pedido = pedidoService.editarPedido(id, pedidoDTO);
-        logAcao("✏️ PUT /api/pedidos/" + id + " — pedido atualizado", pedido);
+        logAcao("PUT /api/pedidos/" + id + " — pedido atualizado", pedido);
         return ResponseEntity.ok("ATUALIZADO");
     }
 
@@ -110,7 +110,7 @@ public class LojaController {
     @ResponseBody
     public ResponseEntity<String> excluirPedido(@PathVariable Long id) {
         pedidoService.excluirPedido(id);
-        logAcao("🗑️ DELETE /api/pedidos/" + id + " — pedido excluído");
+        logAcao("DELETE /api/pedidos/" + id + " — pedido excluído");
         return ResponseEntity.ok("DELETADO");
     }
 
@@ -126,7 +126,7 @@ public class LojaController {
             return ResponseEntity.badRequest().body("ID do pedido não informado.");
         }
         Pedido pedido = pedidoService.atualizarStatus(dto.getId(), dto.getStatusOrderProduction());
-        logAcao("🔄 PUT /salvar-pedido/status — status atualizado", pedido);
+        logAcao("PUT /salvar-pedido/status — status atualizado", pedido);
         return ResponseEntity.ok("Status atualizado com sucesso.");
     }
 
@@ -135,7 +135,7 @@ public class LojaController {
     @ResponseBody
     public ResponseEntity<String> atualizarStatusRest(@PathVariable Long id, @RequestBody PedidoDTO dto) {
         Pedido pedido = pedidoService.atualizarStatus(id, dto.getStatusOrderProduction());
-        logAcao("🔄 PUT /api/pedidos/" + id + "/status — status atualizado", pedido);
+        logAcao("PUT /api/pedidos/" + id + "/status — status atualizado", pedido);
         return ResponseEntity.ok("Status atualizado com sucesso.");
     }
 
