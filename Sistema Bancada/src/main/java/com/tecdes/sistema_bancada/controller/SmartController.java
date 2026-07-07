@@ -168,6 +168,10 @@ public class SmartController {
             // Registra qual OP está em curso: sinais do CLP que não se referirem a
             // este número de OP são tratados como resíduo do pedido anterior e ignorados.
             SmartService.pedidoAtualId = numeroOp;
+            // Guarda o ID de banco do pedido e re-arma a finalização automática do
+            // backend para este novo pedido.
+            SmartService.pedidoDbIdAtual = idPedido;
+            SmartService.ultimoOpFinalizadoBackend = 0;
 
             // 4) Inicia o pedido sem recalcular a posição de expedição.
             boolean inicioOk = iniciarExecucaoPedidoNaPosicao(ipClp, posExpedicao);

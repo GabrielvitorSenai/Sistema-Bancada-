@@ -40,6 +40,12 @@ public class SmartService {
     public static int posicaoExpedicaoSolicitada = 0;
     public static int pedidoAtualId = 0;
 
+    /** ID do pedido (chave do banco) em produção, usado para finalizá-lo no banco. */
+    public static Long pedidoDbIdAtual = null;
+
+    /** OP já finalizada pelo backend — trava one-shot para não regravar a cada scan. */
+    public static int ultimoOpFinalizadoBackend = 0;
+
     public static boolean blockFinished = false;
 
     @Autowired
@@ -47,6 +53,9 @@ public class SmartService {
 
     @Autowired
     private ExpedicaoRepository expedicaoRepository;
+
+    @Autowired
+    private com.tecdes.sistema_bancada.repository.PedidoRepository pedidoRepository;
 
     @Autowired
     private ApiUrlConfig apiUrlConfig;
@@ -1099,6 +1108,11 @@ public class SmartService {
                 }
 
                 System.out.println("Operação OP:" + opGuardadoExpedicao + " Finalizada: ");
+
+                // Finaliza o pedido pelo próprio backend, sem depender do navegador:
+                // grava a conclusão no banco (status + Expedição na posição escolhida)
+                // assim que o CLP confirma o fim. O front continua como fallback.
+                finalizarPedidoNoBanco();
             }
 
             // }
@@ -1112,6 +1126,65 @@ public class SmartService {
             espelharTabelaExpedicaoNoClp(plcConnectorExp);
         }
 
+    }
+
+    /**
+     * Finaliza no banco o pedido em produção assim que o CLP confirma o fim, sem
+     * depender de o navegador chamar /finalizar-pedido-producao.
+     *
+     * Grava a conclusão (status "concluido") e o registro na Expedição na posição
+     * escolhida na execução. Usa uma trava one-shot por OP para não regravar a
+     * cada ciclo de leitura, e é idempotente com a finalização feita pelo front
+     * (mesma posição, mesmo status), que continua valendo como fallback.
+     */
+    private void finalizarPedidoNoBanco() {
+        int op = pedidoAtualId;
+        // Só finaliza uma vez por OP e só quando há uma OP válida em curso.
+        if (op <= 0 || op == ultimoOpFinalizadoBackend) {
+            return;
+        }
+
+        int posicao = posicaoExpedicaoSolicitada;
+        if (posicao < 1 || posicao > 12) {
+            // Sem posição válida definida na execução, deixa o fallback do front cuidar.
+            return;
+        }
+
+        // Marca como finalizada antes de gravar, evitando repetição em novo scan.
+        ultimoOpFinalizadoBackend = op;
+
+        try {
+            // 1) Status do pedido -> concluido (quando conhecemos o ID do banco).
+            if (pedidoDbIdAtual != null) {
+                Long idPedido = pedidoDbIdAtual;
+                pedidoRepository.findById(idPedido).ifPresent(pedido -> {
+                    if (!"concluido".equalsIgnoreCase(pedido.getStatusOrderProduction())) {
+                        pedido.setStatusOrderProduction("concluido");
+                        pedidoRepository.save(pedido);
+                        System.out.println("Backend: pedido ID " + pedido.getId()
+                                + " (OP " + op + ") marcado como concluido.");
+                    }
+                });
+            }
+
+            // 2) Registro na Expedição na posição escolhida na execução (idempotente).
+            Expedicao exp = expedicaoRepository.findByPosicaoExpedicao(posicao)
+                    .orElseGet(Expedicao::new);
+            if (exp.getId() == null || exp.getOrderNumber() != op) {
+                exp.setPosicaoExpedicao(posicao);
+                exp.setOrderNumber(op);
+                expedicaoRepository.save(exp);
+                System.out.println("Backend: OP " + op + " gravada na Expedição na posição " + posicao + ".");
+            }
+
+            // 3) Encerra o ciclo em curso no backend.
+            pedidoEmCurso = false;
+            statusProducao = 1;
+            pedidoDbIdAtual = null;
+        } catch (Exception e) {
+            System.out.println("ERRO ao finalizar pedido no backend (OP " + op + "): " + e.getMessage());
+            e.printStackTrace();
+        }
     }
 
     /**
