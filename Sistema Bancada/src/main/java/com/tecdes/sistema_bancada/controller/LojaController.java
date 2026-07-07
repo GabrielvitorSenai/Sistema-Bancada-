@@ -1,8 +1,6 @@
 package com.tecdes.sistema_bancada.controller;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -16,83 +14,135 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.ResponseBody;
 
-import com.tecdes.sistema_bancada.dto.BlocoDTO;
-import com.tecdes.sistema_bancada.dto.LaminaDTO;
 import com.tecdes.sistema_bancada.dto.PedidoDTO;
-import com.tecdes.sistema_bancada.model.Bloco;
-import com.tecdes.sistema_bancada.model.Lamina;
 import com.tecdes.sistema_bancada.model.Pedido;
-import com.tecdes.sistema_bancada.repository.PedidoRepository;
+import com.tecdes.sistema_bancada.service.PedidoService;
 
+/**
+ * Endpoints de gestão de pedidos da Loja.
+ *
+ * Toda a lógica de negócio (validações das Regras de Ouro e persistência) fica
+ * na camada de Service ({@link PedidoService}); este controller só expõe os
+ * endpoints, delega e registra a ação no terminal. Mantém os caminhos originais
+ * usados pelo frontend e adiciona os caminhos RESTful pedidos na Situação de
+ * Aprendizagem (/api/pedidos, /api/pedidos/{id}/status).
+ */
 @Controller
 public class LojaController {
 
     @Autowired
-    private PedidoRepository pedidoRepository;
+    private PedidoService pedidoService;
 
-    /**
-     * Converte a lista de blocos do DTO em entidades Bloco/Lamina.
-     */
-    private List<Bloco> montarBlocos(List<BlocoDTO> blocosDTO) {
-        List<Bloco> blocos = new ArrayList<>();
+    // ---------------------------------------------------------------------
+    // Criação
+    // ---------------------------------------------------------------------
 
-        for (BlocoDTO blocoDTO : blocosDTO) {
-            Bloco bloco = new Bloco();
-            bloco.setCor(blocoDTO.getCorBloco());
-
-            List<Lamina> laminas = new ArrayList<>();
-            for (LaminaDTO laminaDTO : blocoDTO.getLaminas()) {
-                Lamina lamina = new Lamina();
-                lamina.setCor(laminaDTO.getCor());
-                lamina.setPadrao(laminaDTO.getPadrao());
-                lamina.setBloco(bloco);
-                laminas.add(lamina);
-            }
-
-            bloco.setLaminas(laminas);
-            blocos.add(bloco);
-        }
-
-        return blocos;
+    /** Caminho original usado pela tela da Loja. Retorna o ID gerado. */
+    @PostMapping("/salvar-pedidos")
+    @ResponseBody
+    public ResponseEntity<Long> receberPedido(@RequestBody PedidoDTO pedidoDTO) {
+        Pedido pedido = pedidoService.criarPedido(pedidoDTO);
+        logAcao("📥 POST /salvar-pedidos — pedido criado", pedido);
+        return ResponseEntity.ok(pedido.getId());
     }
 
-    /**
-     * Substitui os blocos de um pedido JÁ PERSISTIDO.
-     *
-     * Importante: não se pode trocar a referência da coleção mapeada
-     * (pedido.setBlocos(novaLista)) em uma entidade gerenciada pelo Hibernate
-     * quando ela usa orphanRemoval — isso quebra o rastreamento da coleção
-     * original e o Hibernate lança "A collection with cascade=all-delete-orphan
-     * was no longer referenced" ao tentar salvar (o erro 500 do PUT). A forma
-     * segura é limpar a coleção existente e adicionar os novos itens nela.
-     */
-    private void substituirBlocos(Pedido pedido, List<BlocoDTO> blocosDTO) {
-        List<Bloco> novosBlocos = montarBlocos(blocosDTO);
-
-        pedido.getBlocos().clear();
-        for (Bloco bloco : novosBlocos) {
-            bloco.setPedido(pedido);
-            pedido.getBlocos().add(bloco);
-        }
+    /** Caminho RESTful pedido no enunciado. Retorna 201 com o pedido criado. */
+    @PostMapping("/api/pedidos")
+    @ResponseBody
+    public ResponseEntity<Pedido> criarPedidoRest(@RequestBody PedidoDTO pedidoDTO) {
+        Pedido pedido = pedidoService.criarPedido(pedidoDTO);
+        logAcao("📥 POST /api/pedidos — pedido criado", pedido);
+        return ResponseEntity.status(HttpStatus.CREATED).body(pedido);
     }
 
-    /**
-     * Garante que o número do pedido informado não pertença a outro pedido.
-     * Números em branco não são validados (o campo é opcional).
-     *
-     * @param idAtual id do pedido sendo editado, ou null durante a criação.
-     */
-    private boolean numeroPedidoEmUsoPorOutroPedido(String numeroPedido, Long idAtual) {
-        if (numeroPedido == null || numeroPedido.isBlank()) {
-            return false;
-        }
-        return pedidoRepository.findByNumeroPedido(numeroPedido)
-                .map(Pedido::getId)
-                .map(idEncontrado -> !idEncontrado.equals(idAtual))
-                .orElse(false);
+    // ---------------------------------------------------------------------
+    // Listagem / consulta
+    // ---------------------------------------------------------------------
+
+    @GetMapping("/listar-pedidos")
+    @ResponseBody
+    public List<Pedido> listarPedidos() {
+        List<Pedido> pedidos = pedidoService.listar();
+        logAcao("📋 GET /listar-pedidos — " + pedidos.size() + " pedido(s) encontrado(s)");
+        return pedidos;
     }
 
-    /** Log padronizado exibido no terminal para cada ação mapeada. */
+    /** Caminho RESTful equivalente a /listar-pedidos. */
+    @GetMapping("/api/pedidos")
+    @ResponseBody
+    public List<Pedido> listarPedidosRest() {
+        List<Pedido> pedidos = pedidoService.listar();
+        logAcao("📋 GET /api/pedidos — " + pedidos.size() + " pedido(s) encontrado(s)");
+        return pedidos;
+    }
+
+    @GetMapping("/listar-pedido/{id}")
+    @ResponseBody
+    public ResponseEntity<Pedido> buscarPedidoPorId(@PathVariable Long id) {
+        return pedidoService.buscarPorId(id)
+                .map(pedido -> {
+                    logAcao("🔍 GET /listar-pedido/" + id + " — pedido consultado", pedido);
+                    return ResponseEntity.ok(pedido);
+                })
+                .orElseGet(() -> {
+                    logAcao("🔍 GET /listar-pedido/" + id + " — pedido não encontrado");
+                    return ResponseEntity.notFound().build();
+                });
+    }
+
+    // ---------------------------------------------------------------------
+    // Edição
+    // ---------------------------------------------------------------------
+
+    @PutMapping("/api/pedidos/{id}")
+    @ResponseBody
+    public ResponseEntity<String> editarPedido(@PathVariable Long id, @RequestBody PedidoDTO pedidoDTO) {
+        Pedido pedido = pedidoService.editarPedido(id, pedidoDTO);
+        logAcao("✏️ PUT /api/pedidos/" + id + " — pedido atualizado", pedido);
+        return ResponseEntity.ok("ATUALIZADO");
+    }
+
+    // ---------------------------------------------------------------------
+    // Exclusão
+    // ---------------------------------------------------------------------
+
+    @DeleteMapping("/api/pedidos/{id}")
+    @ResponseBody
+    public ResponseEntity<String> excluirPedido(@PathVariable Long id) {
+        pedidoService.excluirPedido(id);
+        logAcao("🗑️ DELETE /api/pedidos/" + id + " — pedido excluído");
+        return ResponseEntity.ok("DELETADO");
+    }
+
+    // ---------------------------------------------------------------------
+    // Atualização de status
+    // ---------------------------------------------------------------------
+
+    /** Caminho original usado internamente (recebe o ID no corpo). */
+    @PutMapping("/salvar-pedido/status")
+    @ResponseBody
+    public ResponseEntity<String> atualizarStatusPedido(@RequestBody PedidoDTO dto) {
+        if (dto.getId() == null) {
+            return ResponseEntity.badRequest().body("ID do pedido não informado.");
+        }
+        Pedido pedido = pedidoService.atualizarStatus(dto.getId(), dto.getStatusOrderProduction());
+        logAcao("🔄 PUT /salvar-pedido/status — status atualizado", pedido);
+        return ResponseEntity.ok("Status atualizado com sucesso.");
+    }
+
+    /** Caminho RESTful pedido no enunciado (ID na URL). */
+    @PutMapping("/api/pedidos/{id}/status")
+    @ResponseBody
+    public ResponseEntity<String> atualizarStatusRest(@PathVariable Long id, @RequestBody PedidoDTO dto) {
+        Pedido pedido = pedidoService.atualizarStatus(id, dto.getStatusOrderProduction());
+        logAcao("🔄 PUT /api/pedidos/" + id + "/status — status atualizado", pedido);
+        return ResponseEntity.ok("Status atualizado com sucesso.");
+    }
+
+    // ---------------------------------------------------------------------
+    // Log padronizado no terminal
+    // ---------------------------------------------------------------------
+
     private void logAcao(String acao, Pedido pedido) {
         String numero = (pedido.getNumeroPedido() == null || pedido.getNumeroPedido().isBlank())
                 ? "(não informado)"
@@ -114,132 +164,4 @@ public class LojaController {
         System.out.println("┌─ " + acao);
         System.out.println("└─────────────────────────────────────────");
     }
-
-    @PostMapping("/salvar-pedidos")
-    @ResponseBody
-    public ResponseEntity<?> receberPedido(@RequestBody PedidoDTO pedidoDTO) {
-        if (numeroPedidoEmUsoPorOutroPedido(pedidoDTO.getNumeroPedido(), null)) {
-            return ResponseEntity.status(HttpStatus.CONFLICT)
-                    .body("Já existe um pedido cadastrado com o número " + pedidoDTO.getNumeroPedido() + ".");
-        }
-
-        Pedido pedido = new Pedido();
-        pedido.setNumeroPedido(pedidoDTO.getNumeroPedido());
-        pedido.setTipo(pedidoDTO.getTipo());
-        pedido.setTampa(pedidoDTO.getTampa());
-        pedido.setStatusOrderProduction(pedidoDTO.getStatusOrderProduction());
-        pedido.setTimeStamp(pedidoDTO.getTimeStamp());
-        pedido.setBlocos(montarBlocos(pedidoDTO.getBlocos()));
-
-        // Primeira gravação para gerar o identificador
-        pedido = pedidoRepository.save(pedido);
-
-        // Segunda etapa: vincula o código de produção ao ID
-        pedido.setOrderProduction(pedido.getId().intValue());
-
-        // Atualiza o registro com o código final
-        pedido = pedidoRepository.save(pedido);
-
-        logAcao("📥 POST /salvar-pedidos — pedido criado", pedido);
-
-        return ResponseEntity.ok(pedido.getId());
-    }
-
-    @GetMapping("/listar-pedidos")
-    @ResponseBody
-    public List<Pedido> listarPedidos() {
-        List<Pedido> pedidos = pedidoRepository.findAll();
-        logAcao("📋 GET /listar-pedidos — " + pedidos.size() + " pedido(s) encontrado(s)");
-        return pedidos;
-    }
-
-    @DeleteMapping("/api/pedidos/{id}")
-    @ResponseBody
-    public ResponseEntity<String> excluirPedido(@PathVariable Long id) {
-        Optional<Pedido> pedidoOptional = pedidoRepository.findById(id);
-        if (pedidoOptional.isEmpty()) {
-            logAcao("🗑️ DELETE /api/pedidos/" + id + " — pedido não encontrado");
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("NAO ENCONTRADO");
-        }
-
-        Pedido pedido = pedidoOptional.get();
-        if (!"pendente".equalsIgnoreCase(pedido.getStatusOrderProduction())) {
-            logAcao("🗑️ DELETE /api/pedidos/" + id + " — recusado (status " + pedido.getStatusOrderProduction() + ")");
-            return ResponseEntity.status(HttpStatus.CONFLICT)
-                    .body("Somente pedidos pendentes (ainda não iniciados) podem ser excluídos.");
-        }
-
-        logAcao("🗑️ DELETE /api/pedidos/" + id + " — pedido excluído", pedido);
-        pedidoRepository.deleteById(id);
-        return ResponseEntity.ok("DELETADO");
-    }
-
-    @PutMapping("/api/pedidos/{id}")
-    @ResponseBody
-    public ResponseEntity<String> editarPedido(@PathVariable Long id, @RequestBody PedidoDTO pedidoDTO) {
-        Optional<Pedido> pedidoOptional = pedidoRepository.findById(id);
-        if (pedidoOptional.isEmpty()) {
-            logAcao("✏️ PUT /api/pedidos/" + id + " — pedido não encontrado");
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Pedido não encontrado.");
-        }
-
-        Pedido pedido = pedidoOptional.get();
-        if (!"pendente".equalsIgnoreCase(pedido.getStatusOrderProduction())) {
-            logAcao("✏️ PUT /api/pedidos/" + id + " — recusado (status " + pedido.getStatusOrderProduction() + ")");
-            return ResponseEntity.status(HttpStatus.CONFLICT)
-                    .body("Somente pedidos pendentes (ainda não iniciados) podem ser editados.");
-        }
-
-        if (numeroPedidoEmUsoPorOutroPedido(pedidoDTO.getNumeroPedido(), id)) {
-            logAcao("✏️ PUT /api/pedidos/" + id + " — recusado (número duplicado)");
-            return ResponseEntity.status(HttpStatus.CONFLICT)
-                    .body("Já existe um pedido cadastrado com o número " + pedidoDTO.getNumeroPedido() + ".");
-        }
-
-        pedido.setNumeroPedido(pedidoDTO.getNumeroPedido());
-        pedido.setTipo(pedidoDTO.getTipo());
-        pedido.setTampa(pedidoDTO.getTampa());
-        substituirBlocos(pedido, pedidoDTO.getBlocos());
-
-        pedido = pedidoRepository.save(pedido);
-        logAcao("✏️ PUT /api/pedidos/" + id + " — pedido atualizado", pedido);
-
-        return ResponseEntity.ok("ATUALIZADO");
-    }
-
-    @GetMapping("/listar-pedido/{id}")
-    @ResponseBody
-    public ResponseEntity<Pedido> buscarPedidoPorId(@PathVariable Long id) {
-        Optional<Pedido> pedidoOptional = pedidoRepository.findById(id);
-        if (pedidoOptional.isEmpty()) {
-            logAcao("🔍 GET /listar-pedido/" + id + " — pedido não encontrado");
-            return ResponseEntity.notFound().build();
-        }
-
-        logAcao("🔍 GET /listar-pedido/" + id + " — pedido consultado", pedidoOptional.get());
-        return ResponseEntity.ok(pedidoOptional.get());
-    }
-
-    @PutMapping("/salvar-pedido/status")
-    @ResponseBody
-    public ResponseEntity<String> atualizarStatusPedido(@RequestBody PedidoDTO dto) {
-        if (dto.getId() == null) {
-            return ResponseEntity.badRequest().body("ID do pedido não informado.");
-        }
-
-        Optional<Pedido> pedidoOptional = pedidoRepository.findById(dto.getId());
-
-        if (pedidoOptional.isPresent()) {
-            Pedido pedido = pedidoOptional.get();
-            pedido.setStatusOrderProduction(dto.getStatusOrderProduction());
-            pedido = pedidoRepository.save(pedido);
-            logAcao("🔄 PUT /salvar-pedido/status — status atualizado", pedido);
-            return ResponseEntity.ok("Status atualizado com sucesso.");
-        } else {
-            logAcao("🔄 PUT /salvar-pedido/status — pedido " + dto.getId() + " não encontrado");
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body("Pedido com ID " + dto.getId() + " não encontrado.");
-        }
-    }
-
 }

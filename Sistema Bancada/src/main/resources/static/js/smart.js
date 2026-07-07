@@ -18,6 +18,32 @@ let statusEstoqueAnterior = 0; // usado para detectar a borda de subida (novo pe
 
 console.info("Painel Linha Didática 4.0 iniciado");
 
+// Exibe uma notificação temporária (toast) no canto da tela.
+// tipo: "sucesso" (verde) ou "erro" (vermelho).
+function mostrarToast(mensagem, tipo = "sucesso", duracaoMs = 4000) {
+    let container = document.getElementById("toast-container");
+    if (!container) {
+        container = document.createElement("div");
+        container.id = "toast-container";
+        document.body.appendChild(container);
+    }
+
+    const toast = document.createElement("div");
+    toast.className = "toast " + (tipo === "erro" ? "erro" : "sucesso");
+    toast.setAttribute("role", "status");
+    toast.textContent = mensagem;
+    container.appendChild(toast);
+
+    // Anima a entrada no próximo quadro para que a transição ocorra.
+    requestAnimationFrame(() => toast.classList.add("visivel"));
+
+    setTimeout(() => {
+        toast.classList.remove("visivel");
+        setTimeout(() => toast.remove(), 300);
+    }, duracaoMs);
+}
+window.mostrarToast = mostrarToast;
+
 // Preparação inicial da interface
 document.addEventListener("DOMContentLoaded", function () {
     if (sessionStorage.getItem("bancadaConectada") === "true") {

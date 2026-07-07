@@ -2,8 +2,8 @@
 <div th:fragment="lojaTela" id="lojaTela" class="tela">
     <div class="tipoBlock">
         <div class="input-box">
-            <label for="numeroPedido" style="text-align: left; padding-top: 5px;">Número do Pedido:</label>
-            <input type="text" id="numeroPedido" placeholder="Ex: 12345">
+            <label for="numeroPedido" style="text-align: left; padding-top: 5px;">Número do Pedido: <span style="color:#c0392b;">*</span></label>
+            <input type="text" id="numeroPedido" placeholder="Ex: 12345" oninput="atualizarEstadoBotaoSalvar()">
         </div>
         <div class="input-box">
             <label for="tipoPedido" style="text-align: left; padding-top: 5px;">Tipo de Pedido:</label>
@@ -144,7 +144,7 @@
     </div>
 
     <div class="tipoBlock">
-        <button id="btnSalvarPedido" onclick="salvarPedido()">Salvar Pedido</button>
+        <button id="btnSalvarPedido" onclick="salvarPedido()" disabled title="Informe o número do pedido para habilitar">Salvar Pedido</button>
         <button id="btnExecutarPedido" onclick="executarPedido()">Executar Pedido</button>
         <button id="btnCancelarEdicao" onclick="cancelarEdicaoPedido()" style="display:none;">Cancelar edição</button>
     </div>
@@ -195,7 +195,7 @@
             </div>
             <div class="input-combo">
                         <div class="input-box">
-                            <label for="l1-color-1">Cor Lâmina 1</label>
+                            <label for="l1-color-1">Cor Lâmina Esquerda</label>
                             <select name="l1-color-1" id="l1-color-${nBloco}" disabled onchange="changePedidoView(${nBloco}, this.value)">
                                 <option value="" hidden selected>Selecione</option>
                                 <option value="">Nenhuma</option>
@@ -208,7 +208,7 @@
                             </select>
                         </div>
                         <div class="input-box">
-                            <label for="l1-pattern-1">Padrão Lâmina 1</label>
+                            <label for="l1-pattern-1">Padrão Lâmina Esquerda</label>
                             <select name="l1-pattern-1" id="l1-pattern-${nBloco}" disabled onchange="changePedidoView(${nBloco}, this.value)">
                                 <option value="" hidden selected>Selecione</option>
                                 <option value="">Nenhum</option>
@@ -220,7 +220,7 @@
                     </div>
                     <div class="input-combo">
                         <div class="input-box">
-                            <label for="l2-color-1">Cor Lâmina 2</label>
+                            <label for="l2-color-1">Cor Lâmina Frente</label>
                             <select name="l2-color-1" id="l2-color-${nBloco}" disabled onchange="changePedidoView(${nBloco}, this.value)">
                                 <option value="" hidden selected>Selecione</option>
                                 <option value="">Nenhuma</option>
@@ -233,7 +233,7 @@
                             </select>
                         </div>
                         <div class="input-box">
-                            <label for="l2-pattern-1">Padrão Lâmina 2</label>
+                            <label for="l2-pattern-1">Padrão Lâmina Frente</label>
                             <select name="l2-pattern-1" id="l2-pattern-${nBloco}" disabled onchange="changePedidoView(${nBloco}, this.value)">
                                 <option value="" hidden selected>Selecione</option>
                                 <option value="">Nenhum</option>
@@ -245,7 +245,7 @@
                     </div>
                     <div class="input-combo">
                         <div class="input-box">
-                            <label for="l3-color-1">Cor Lâmina 3</label>
+                            <label for="l3-color-1">Cor Lâmina Direita</label>
                             <select name="l3-color-1" id="l3-color-${nBloco}" disabled onchange="changePedidoView(${nBloco}, this.value)">
                                 <option value="" hidden selected>Selecione</option>
                                 <option value="">Nenhuma</option>
@@ -258,7 +258,7 @@
                             </select>
                         </div>
                         <div class="input-box">
-                            <label for="l3-pattern-1">Padrão Lâmina 3</label>
+                            <label for="l3-pattern-1">Padrão Lâmina Direita</label>
                             <select name="l3-pattern-1" id="l3-pattern-${nBloco}" disabled onchange="changePedidoView(${nBloco}, this.value)">
                                 <option value="" hidden selected>Selecione</option>
                                 <option value="">Nenhum</option>
@@ -759,6 +759,14 @@
         // null/undefined significa que o formulário está criando um pedido novo.
         window.editandoPedidoId = window.editandoPedidoId || null;
 
+        // Validação em tempo real: o botão Salvar só é habilitado quando o
+        // número do pedido (ordem de produção) estiver preenchido.
+        function atualizarEstadoBotaoSalvar() {
+            const numero = (document.getElementById("numeroPedido").value || "").trim();
+            const btn = document.getElementById("btnSalvarPedido");
+            if (btn) btn.disabled = numero === "";
+        }
+
         // Restaura os controles do formulário ao estado de criação (usado tanto ao
         // sair de uma edição quanto ao carregar um pedido só para produção).
         function sairModoEdicaoPedido() {
@@ -777,6 +785,7 @@
             if (posExpedicao) posExpedicao.value = "0";
             document.getElementById("pedido-id").innerText = "";
             renderBlocos();
+            atualizarEstadoBotaoSalvar();
         }
 
         // Ação do botão "Cancelar edição": sai do modo de edição e limpa o formulário.
@@ -838,15 +847,28 @@
                 return editandoId ? editandoId : res.json();
             })
                 .then(id => {
-                    alert(editandoId ? `Pedido #${id} atualizado com sucesso!` : `Pedido #${id} enviado com sucesso!`);
+                    const rotulo = numeroPedido && numeroPedido.trim() ? "Nº " + numeroPedido.trim() : "#" + id;
+                    const msg = editandoId
+                        ? `Pedido ${rotulo} atualizado com sucesso!`
+                        : `Pedido ${rotulo} cadastrado com sucesso e enviado para a fila de produção!`;
+                    notificar(msg, "sucesso");
                     if (editandoId) sairModoEdicaoPedido();
                     resetarFormularioNovoPedido();
                     if (typeof listarPedidos === "function") listarPedidos();
                 })
                 .catch(err => {
                     console.error("Erro na requisição:", err);
-                    alert(err.message || "Erro ao enviar pedido.");
+                    notificar(err.message || "Erro ao enviar pedido.", "erro");
                 });
+        }
+
+        // Exibe um toast quando disponível; se não, recorre ao alert nativo.
+        function notificar(mensagem, tipo) {
+            if (typeof window.mostrarToast === "function") {
+                window.mostrarToast(mensagem, tipo);
+            } else {
+                alert(mensagem);
+            }
         }
 
 
