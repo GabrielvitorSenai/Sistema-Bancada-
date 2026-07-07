@@ -90,10 +90,11 @@ public class SmartController {
         int numeroOp = resolverNumeroOp(pedidoEntidade);
 
         // Posição de guardar na expedição (1..12). Se vier 0/inválida, usa a 1ª livre.
-        int posExpedicao = pedidoDTO.getPosicaoExpedicao();
-        if (posExpedicao < 1 || posExpedicao > 12) {
-            posExpedicao = smartService.buscarPrimeiraPosicaoLivreExp();
-        }
+        int posicaoSolicitada = pedidoDTO.getPosicaoExpedicao();
+        boolean posicaoAutomatica = (posicaoSolicitada < 1 || posicaoSolicitada > 12);
+        int posExpedicao = posicaoAutomatica
+                ? smartService.buscarPrimeiraPosicaoLivreExp()
+                : posicaoSolicitada;
         if (posExpedicao == -1) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body("Erro: não há posição livre na expedição para guardar o pedido.");
@@ -102,7 +103,10 @@ public class SmartController {
         System.out.println("Iniciando pedido ID: " + idPedido + " (número de OP: " + numeroOp + ")");
         System.out.println("Pedido recebido para IP do CLP: " + ipClp);
         System.out.println("Pedido tipo: " + tipo);
-        System.out.println("Posição de expedição (guardar ao finalizar): " + posExpedicao);
+        System.out.println("Posição de expedição solicitada pelo operador: "
+                + (posicaoAutomatica ? "Automática (1ª livre)" : posicaoSolicitada));
+        System.out.println("Posição de expedição que será usada: " + posExpedicao
+                + (posicaoAutomatica ? " (resolvida automaticamente)" : " (escolhida pelo operador)"));
         System.out.println("Cor da tampa: " + (tampa == 1 ? "Preto" : tampa == 2 ? "Vermelho" : "Azul"));
 
         for (BlocoDTO bloco : pedido) {
@@ -164,6 +168,10 @@ public class SmartController {
             // Registra qual OP está em curso: sinais do CLP que não se referirem a
             // este número de OP são tratados como resíduo do pedido anterior e ignorados.
             SmartService.pedidoAtualId = numeroOp;
+            // Guarda o ID de banco do pedido e re-arma a finalização automática do
+            // backend para este novo pedido.
+            SmartService.pedidoDbIdAtual = idPedido;
+            SmartService.ultimoOpFinalizadoBackend = 0;
 
             // 4) Inicia o pedido sem recalcular a posição de expedição.
             boolean inicioOk = iniciarExecucaoPedidoNaPosicao(ipClp, posExpedicao);
@@ -171,6 +179,13 @@ public class SmartController {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                         .body("Erro: não foi possível acionar a flag de início no CLP.");
             }
+
+            // 5) Marca o pedido como "em produção" no banco assim que a execução
+            // começa. Antes o pedido continuava "pendente" até a conclusão, então
+            // ele nunca aparecia no filtro "Produção" da tela de Pedidos.
+            pedidoEntidade.setStatusOrderProduction("producao");
+            pedidoRepository.save(pedidoEntidade);
+            System.out.println("Status do pedido " + idPedido + " (OP " + numeroOp + ") atualizado para: producao");
 
             // O número de OP vai no header para o front acompanhar a finalização
             // usando o MESMO número gravado no CLP (operador ou id automático).
@@ -196,16 +211,21 @@ public class SmartController {
         }
 
         int posExpedicao = pedidoDTO.getPosicaoExpedicao();
+        boolean usouFallback = false;
         if (posExpedicao < 1 || posExpedicao > 12) {
             // Fallback seguro: usa apenas a posição vinculada ao ID do pedido quando ele iniciou.
             // Não usa mais SmartService.posicaoExpedicaoSolicitada porque é global e pode estar velho.
             posExpedicao = posicoesExpedicaoPedidos.getOrDefault(idPedido, 0);
+            usouFallback = true;
         }
 
         if (posExpedicao < 1 || posExpedicao > 12) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body("Posição de expedição inválida para finalizar o pedido " + idPedido + ".");
         }
+
+        System.out.println("Finalizando pedido ID: " + idPedido + " — posição de expedição: " + posExpedicao
+                + (usouFallback ? " (recuperada da execução)" : " (informada na finalização)"));
 
         String ipClpExpedicao = pedidoDTO.getIpClp();
 

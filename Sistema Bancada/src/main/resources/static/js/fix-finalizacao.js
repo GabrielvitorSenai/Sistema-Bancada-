@@ -238,6 +238,50 @@
 
     window.finalizarPedido = finalizarPedidoCorrigido;
 
+    // Encerra o ciclo na tela (para o contador, atualiza o botão e limpa o
+    // estado local) quando a conclusão JÁ foi gravada — usado quando o backend
+    // finaliza sozinho e o navegador não chegou a detectar pelo CLP. Não chama
+    // /finalizar-pedido-producao de novo, pois o banco já está finalizado.
+    function aplicarFinalizacaoLocal(pedidoId) {
+        if (typeof pedidoFinalizado !== "undefined" && pedidoFinalizado) return;
+
+        if (typeof pedidoFinalizado !== "undefined") pedidoFinalizado = true;
+        if (typeof pedidoConcluido !== "undefined") pedidoConcluido = true;
+        if (typeof pedidoEmCurso !== "undefined") pedidoEmCurso = false;
+
+        if (typeof pararContador === "function") pararContador();
+
+        const btn = document.getElementById("btnExecutarPedidoProducao");
+        if (btn) btn.textContent = "Pedido concluido";
+
+        finalizarLimpezaLocal(pedidoId);
+    }
+
+    // Sincroniza a tela com o banco: se o pedido em curso já consta como
+    // "concluido" (o backend finaliza sozinho ao detectar o fim), encerra o
+    // ciclo na tela mesmo que o sinal do CLP não tenha sido captado ao vivo.
+    async function verificarFinalizacaoNoBanco() {
+        try {
+            if (typeof pedidoFinalizado !== "undefined" && pedidoFinalizado) return;
+            if (sessionStorage.getItem("pedidoEmCurso") !== "true") return;
+
+            const pedidoId = obterPedidoIdSeguro();
+            if (!pedidoId) return;
+
+            const res = await fetch(`/listar-pedido/${pedidoId}`, { cache: "no-store" });
+            if (!res.ok) return;
+
+            const pedido = await res.json();
+            const status = (pedido.statusOrderProduction || "").toString().toLowerCase();
+            if (status === "concluido" || status === "concluído") {
+                console.log("Finalização confirmada pelo banco para o pedido", pedidoId);
+                aplicarFinalizacaoLocal(pedidoId);
+            }
+        } catch (e) {
+            // Silencioso: é apenas uma verificação de apoio.
+        }
+    }
+
     const processarOriginal = window.processarDadosClp;
     window.processarDadosClp = function (clp, data) {
         processarOriginal.apply(this, arguments);
@@ -247,4 +291,5 @@
     };
 
     setInterval(tentarFinalizarPedido, 700);
+    setInterval(verificarFinalizacaoNoBanco, 2500);
 })();
