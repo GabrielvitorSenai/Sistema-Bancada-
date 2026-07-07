@@ -1188,14 +1188,14 @@ public class SmartService {
     }
 
     /**
-     * Espelha no CLP de Expedição a tabela de posições salva no banco (DB9, words a
-     * partir do offset 6). O banco é a única fonte da verdade: qualquer posição do
-     * CLP com valor diferente do banco é reescrita com o valor do banco.
+     * Reafirma no CLP de Expedição APENAS as posições que o banco tem OCUPADAS
+     * (pedidos do operador), a partir do offset 6 do DB9.
      *
-     * Isso corrige, a cada ciclo de leitura, as escritas que a rotina interna do CLP
-     * faz por conta própria (tipicamente sobrescrevendo a posição 1), sem nunca
-     * derivar escritas de valores/flag lidos do CLP - o que evita agir sobre dados
-     * antigos de pedidos anteriores.
+     * Isso mantém a correção da rotina interna do CLP (que tipicamente zera/
+     * corrompe a posição 1) para os pedidos do próprio operador, mas NÃO mexe nas
+     * posições que o banco considera vazias — assim, o que outro grupo gravar
+     * nessas posições do CLP permanece e aparece ao vivo na Linha, sem ser
+     * apagado. Continua sem derivar escritas de valores/flags lidos do CLP.
      */
     private void espelharTabelaExpedicaoNoClp(PlcConnector plcConnectorExp) {
         try {
@@ -1208,6 +1208,11 @@ public class SmartService {
             }
 
             for (int pos = 1; pos <= 12; pos++) {
+                // Posição vazia no banco: não reescreve, deixa o CLP como está
+                // (preserva o que outros grupos gravaram para exibição ao vivo).
+                if (desejado[pos - 1] == 0) {
+                    continue;
+                }
                 if (orderExpedicao[pos - 1] != desejado[pos - 1]) {
                     int offset = 6 + ((pos - 1) * 2);
                     plcConnectorExp.writeInt(9, offset, desejado[pos - 1]);
