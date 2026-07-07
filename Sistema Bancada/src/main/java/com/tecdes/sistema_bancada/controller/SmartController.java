@@ -438,7 +438,10 @@ public class SmartController {
 
     @PostMapping("/estoque/salvar")
     public ResponseEntity<String> salvarEstoque(@RequestBody Map<String, Integer> dados) {
+        System.out.println();
+        System.out.println("┌─ 📦 POST /estoque/salvar — atualizando Magazine de Estoque no banco");
         try {
+            int[] atualizadas = {0};
             dados.forEach((posStr, valor) -> {
                 try {
                     int pos = Integer.parseInt(posStr.split(":")[1]);
@@ -453,12 +456,15 @@ public class SmartController {
 
                         estoque.setCor(valor);
                         estoqueRepository.save(estoque);
+                        atualizadas[0]++;
+                        System.out.println("│  Posição " + pos + " -> " + nomeCorEstoque(valor));
                     }
                 } catch (Exception e) {
-                    System.err.println("Erro ao processar posição: " + posStr + " - " + e.getMessage());
+                    System.err.println("│  Erro ao processar posição: " + posStr + " - " + e.getMessage());
                 }
             });
 
+            System.out.println("└─ " + atualizadas[0] + " posição(ões) de estoque salva(s) no banco.");
             return ResponseEntity.ok("Estoque salvo com sucesso.");
         } catch (Exception e) {
             e.printStackTrace();
@@ -467,11 +473,28 @@ public class SmartController {
         }
     }
 
+    private String nomeCorEstoque(int cor) {
+        switch (cor) {
+            case 0:
+                return "Vazio";
+            case 1:
+                return "Preto";
+            case 2:
+                return "Vermelho";
+            case 3:
+                return "Azul";
+            default:
+                return "Cor " + cor;
+        }
+    }
+
     @PostMapping("/expedicao/salvar")
     public ResponseEntity<String> salvarExpedicao(@RequestBody Map<String, Integer> dados) {
-        System.out.println("Atualizando tabela Expedição!!");
+        System.out.println();
+        System.out.println("┌─ 🚚 POST /expedicao/salvar — atualizando Magazine de Expedição no banco");
 
         try {
+            int[] atualizadas = {0};
             dados.forEach((posStr, valor) -> {
                 try {
                     int pos = Integer.parseInt(posStr.split(":")[1]);
@@ -479,7 +502,7 @@ public class SmartController {
                     if (pos >= 1 && pos <= 12) {
                         if (valor == 0) {
                             expedicaoRepository.findByPosicaoExpedicao(pos).ifPresent(expedicaoRepository::delete);
-                            System.out.println("Removida posição " + pos + " da tabela Expedição.");
+                            System.out.println("│  Posição " + pos + " -> liberada (removida)");
                         } else {
                             Expedicao exp = expedicaoRepository
                                     .findByPosicaoExpedicao(pos)
@@ -488,14 +511,16 @@ public class SmartController {
                             exp.setPosicaoExpedicao(pos);
                             exp.setOrderNumber(valor);
                             expedicaoRepository.save(exp);
-                            System.out.println("Atualizada posição " + pos + " com valor " + valor);
+                            System.out.println("│  Posição " + pos + " -> OP " + valor);
                         }
+                        atualizadas[0]++;
                     }
                 } catch (Exception e) {
-                    System.err.println("Erro ao processar posição: " + posStr + " - " + e.getMessage());
+                    System.err.println("│  Erro ao processar posição: " + posStr + " - " + e.getMessage());
                 }
             });
 
+            System.out.println("└─ " + atualizadas[0] + " posição(ões) de expedição salva(s) no banco.");
             return ResponseEntity.ok("Tabela Expedição atualizada com sucesso.");
         } catch (Exception e) {
             e.printStackTrace();

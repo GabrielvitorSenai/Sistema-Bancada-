@@ -451,7 +451,18 @@
         // A função carregarValoresExpedicao é definida em smart.js e atualiza,
         // além dos inputs desta tela, a grade da Linha e o select da Loja.
 
-        // Função para atualizar a tabela Estoque na base de dados
+        // Exibe um toast quando disponível; se não, recorre ao alert nativo.
+        function notificarGestao(mensagem, tipo) {
+            if (typeof window.mostrarToast === "function") {
+                window.mostrarToast(mensagem, tipo);
+            } else {
+                alert(mensagem);
+            }
+        }
+
+        // Atualiza a tabela Estoque na base de dados. Salva direto no banco, sem
+        // precisar da bancada conectada — ao iniciar a bancada, esses dados são
+        // enviados aos CLPs (enviarParaClpEstoque, chamado na conexão).
         async function updateEstoque() {
             const estoqueInputs = document.querySelectorAll(".grid.estoque .input-celula:not(.invisivel)");
             const payload = {};
@@ -472,12 +483,15 @@
                 });
 
                 if (!response.ok) {
-                    alert("Erro ao atualizar estoque.");
+                    notificarGestao("Erro ao atualizar o estoque no banco.", "erro");
                 } else {
-                    alert("Estoque atualizado com sucesso.");
+                    const total = Object.keys(payload).length;
+                    notificarGestao(`Estoque salvo no banco: ${total} posição(ões) atualizada(s).`, "sucesso");
+                    carregarValoresEstoque(); // recarrega para refletir o que foi salvo
                 }
             } catch (erro) {
                 console.error("Erro na requisição:", erro);
+                notificarGestao("Erro na comunicação com o servidor ao salvar o estoque.", "erro");
             }
         }
 
@@ -503,7 +517,7 @@
             });
 
             if (Object.keys(payload).length === 0) {
-                alert("Nenhuma posição foi alterada.");
+                notificarGestao("Nenhuma posição da expedição foi alterada.", "erro");
                 return;
             }
 
@@ -515,13 +529,15 @@
                 });
 
                 if (response.ok) {
-                    alert("Expedição atualizada com sucesso!");
+                    const total = Object.keys(payload).length;
+                    notificarGestao(`Expedição salva no banco: ${total} posição(ões) atualizada(s).`, "sucesso");
                     carregarValoresExpedicao(); // reflete o que foi salvo em todas as telas
                 } else {
-                    alert("Erro ao atualizar expedição.");
+                    notificarGestao("Erro ao atualizar a expedição no banco.", "erro");
                 }
             } catch (erro) {
                 console.error("Erro na requisição:", erro);
+                notificarGestao("Erro na comunicação com o servidor ao salvar a expedição.", "erro");
             }
         }
 
