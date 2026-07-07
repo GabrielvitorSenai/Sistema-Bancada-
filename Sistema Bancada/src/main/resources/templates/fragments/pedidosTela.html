@@ -7,6 +7,15 @@
             <div>
                 <h2>Pedidos Cadastrados</h2>
             </div>
+
+            <div class="filtro-pedidos" id="filtroPedidos">
+                <span class="filtro-rotulo">Filtrar por status:</span>
+                <button class="filtro-btn ativo" data-filtro="todos" onclick="setFiltroPedidos('todos', this)">Todos</button>
+                <button class="filtro-btn" data-filtro="pendente" onclick="setFiltroPedidos('pendente', this)">Pendente</button>
+                <button class="filtro-btn" data-filtro="producao" onclick="setFiltroPedidos('producao', this)">Produção</button>
+                <button class="filtro-btn" data-filtro="concluido" onclick="setFiltroPedidos('concluido', this)">Concluído</button>
+            </div>
+
             <div id="listaPedidos"></div>
 
 
@@ -16,62 +25,106 @@
 
 
     <script>
+        // Guarda o último resultado carregado para permitir filtrar sem novo fetch.
+        let _pedidosCache = [];
+        let _filtroPedidos = "todos";
+
         function listarPedidos() {
             fetch("/listar-pedidos")
                 .then(response => response.json())
                 .then(data => {
-                    const listaContainer = document.getElementById("listaPedidos");
-                    listaContainer.innerHTML = "";
-
-                    if (data.length === 0) {
-                        listaContainer.innerHTML += "<p>Nenhum pedido encontrado.</p>";
-                        return;
-                    }
-
-                    data.forEach((pedido) => {
-                        const pedidoDiv = document.createElement("div");
-                        pedidoDiv.classList.add("pedido");
-
-                        const corTampa = corTextoBlocoTampa(pedido.tampa || pedido.corTampa); // mantém compatibilidade com os campos retornados
-                        const numeroPedido = pedido.numeroPedido ? pedido.numeroPedido : `#${pedido.id}`;
-
-                        let pedidoHTML = `<h3 style="margin-bottom: 5px;">Pedido: <span style="font-weight: normal;">${numeroPedido}</span></h3>
-                                          <p><strong>Tipo:</strong> ${pedido.tipo}</p>
-                                          <p><strong>Cor da tampa: <span style="color: ${corTampa.css}; font-weight: bold;">${corTampa.nome}</span></p>
-                                          <p><strong>Status:</strong> ${pedido.statusOrderProduction}</p>`;
-
-                        if (pedido.statusOrderProduction && pedido.statusOrderProduction.toLowerCase() === "pendente") {
-                            pedidoHTML += `<div style="display:flex; gap:8px; flex-wrap:wrap; margin-top: 10px; margin-bottom: 10px;">
-                                <button onclick="carregarPedidoPendente(${pedido.id})">Enviar para produção</button>
-                                <button onclick="editarPedido(${pedido.id})">Editar</button>
-                                <button class="btn-stop" onclick="excluirPedido(${pedido.id})">Excluir</button>
-                            </div>`;
-                        }
-
-                        pedidoDiv.innerHTML = pedidoHTML;
-
-                        pedido.blocos.forEach((bloco, i) => {
-                            const blocoDiv = document.createElement("div");
-
-                            const corBloco = corTextoBlocoTampa(bloco.cor || bloco.corBloco); // mantém compatibilidade com os campos retornados
-                            blocoDiv.innerHTML = `<div style="margin-top: 10px;"><strong>Bloco ${i + 1}</strong> - Cor: <span style="color: ${corBloco.css}; font-weight: bold;">${corBloco.nome}</span></div>`;
-
-                            // blocoDiv.innerHTML = `<strong>Bloco ${i + 1}</strong> - Cor: <span style="color: ${corBloco.css}; font-weight: bold;">${corBloco.nome}</span><br>`;
-
-                            bloco.laminas.forEach((lamina, j) => {
-                                const corLamina = corTextoLamina(lamina.cor);
-                                blocoDiv.innerHTML += `&nbsp;&nbsp;Lâmina ${j + 1} - Cor: <span style="color: ${corLamina.css}; font-weight: bold;">${corLamina.nome}</span>, Padrão: ${lamina.padrao}<br>`;
-                            });
-
-                            pedidoDiv.appendChild(blocoDiv);
-                        });
-
-                        listaContainer.appendChild(pedidoDiv);
-                    });
+                    _pedidosCache = Array.isArray(data) ? data : [];
+                    renderPedidos();
                 })
                 .catch(() => {
                     alert("Erro ao carregar pedidos.");
                 });
+        }
+
+        // Normaliza o status para comparação (minúsculo, sem acento nas variantes).
+        function statusNormalizado(status) {
+            return (status || "").toString().trim().toLowerCase();
+        }
+
+        // Descreve o status como uma etiqueta visual (cor + ícone).
+        function badgeStatus(status) {
+            const s = statusNormalizado(status);
+            if (s === "concluido" || s === "concluído") {
+                return { classe: "badge-concluido", rotulo: "CONCLUÍDO", icone: "✔" };
+            }
+            if (s === "producao" || s === "produção") {
+                return { classe: "badge-producao", rotulo: "EM PRODUÇÃO", icone: "⚙" };
+            }
+            return { classe: "badge-pendente", rotulo: "PENDENTE", icone: "⚠" };
+        }
+
+        // Ativa um filtro de status e redesenha a lista a partir do cache.
+        function setFiltroPedidos(filtro, botao) {
+            _filtroPedidos = filtro;
+            document.querySelectorAll("#filtroPedidos .filtro-btn").forEach(b => b.classList.remove("ativo"));
+            if (botao) botao.classList.add("ativo");
+            renderPedidos();
+        }
+
+        function pedidoPassaNoFiltro(pedido) {
+            if (_filtroPedidos === "todos") return true;
+            const s = statusNormalizado(pedido.statusOrderProduction);
+            if (_filtroPedidos === "pendente") return s === "pendente";
+            if (_filtroPedidos === "producao") return s === "producao" || s === "produção";
+            if (_filtroPedidos === "concluido") return s === "concluido" || s === "concluído";
+            return true;
+        }
+
+        function renderPedidos() {
+            const listaContainer = document.getElementById("listaPedidos");
+            listaContainer.innerHTML = "";
+
+            const filtrados = _pedidosCache.filter(pedidoPassaNoFiltro);
+
+            if (filtrados.length === 0) {
+                listaContainer.innerHTML = "<p>Nenhum pedido encontrado.</p>";
+                return;
+            }
+
+            filtrados.forEach((pedido) => {
+                const pedidoDiv = document.createElement("div");
+                pedidoDiv.classList.add("pedido");
+
+                const corTampa = corTextoBlocoTampa(pedido.tampa || pedido.corTampa); // mantém compatibilidade com os campos retornados
+                const numeroPedido = pedido.numeroPedido ? pedido.numeroPedido : `#${pedido.id}`;
+                const badge = badgeStatus(pedido.statusOrderProduction);
+
+                let pedidoHTML = `<h3 style="margin-bottom: 5px;">Pedido: <span style="font-weight: normal;">${numeroPedido}</span></h3>
+                                  <p><strong>Tipo:</strong> ${pedido.tipo}</p>
+                                  <p><strong>Cor da tampa: <span style="color: ${corTampa.css}; font-weight: bold;">${corTampa.nome}</span></p>
+                                  <p><strong>Status:</strong> <span class="status-badge ${badge.classe}"><span class="status-icone">${badge.icone}</span>${badge.rotulo}</span></p>`;
+
+                if (statusNormalizado(pedido.statusOrderProduction) === "pendente") {
+                    pedidoHTML += `<div style="display:flex; gap:8px; flex-wrap:wrap; margin-top: 10px; margin-bottom: 10px;">
+                        <button onclick="carregarPedidoPendente(${pedido.id})">Enviar para produção</button>
+                        <button onclick="editarPedido(${pedido.id})">Editar</button>
+                        <button class="btn-stop" onclick="excluirPedido(${pedido.id})">Excluir</button>
+                    </div>`;
+                }
+
+                pedidoDiv.innerHTML = pedidoHTML;
+
+                pedido.blocos.forEach((bloco, i) => {
+                    const blocoDiv = document.createElement("div");
+
+                    const corBloco = corTextoBlocoTampa(bloco.cor || bloco.corBloco); // mantém compatibilidade com os campos retornados
+                    blocoDiv.innerHTML = `<div style="margin-top: 10px;"><strong>Bloco ${i + 1}</strong> - Cor: <span style="color: ${corBloco.css}; font-weight: bold;">${corBloco.nome}</span></div>`;
+
+                    bloco.laminas.forEach((lamina, j) => {
+                        const corLamina = corTextoLamina(lamina.cor);
+                        blocoDiv.innerHTML += `&nbsp;&nbsp;Lâmina ${j + 1} - Cor: <span style="color: ${corLamina.css}; font-weight: bold;">${corLamina.nome}</span>, Padrão: ${lamina.padrao}<br>`;
+                    });
+
+                    pedidoDiv.appendChild(blocoDiv);
+                });
+
+                listaContainer.appendChild(pedidoDiv);
+            });
         }
 
         // Converte o código recebido em descrição e cor para exibição
@@ -122,6 +175,7 @@
             document.getElementById("numeroPedido").value = pedido.numeroPedido || "";
             document.getElementById("tipoPedido").value = pedido.tipo;
             document.getElementById("corTampa").value = pedido.tampa || pedido.corTampa || 1;
+            if (typeof atualizarEstadoBotaoSalvar === "function") atualizarEstadoBotaoSalvar();
             renderBlocos(); // Gera os blocos na interface
 
             document.getElementById("pedido-id").innerText = "Pedido #" + pedido.id;

@@ -848,3 +848,141 @@ button:hover,
         justify-content: flex-start;
     }
 }
+
+/* ===== Botão desabilitado (validação em tempo real) ===== */
+button:disabled,
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    filter: grayscale(0.4);
+    box-shadow: none !important;
+    transform: none !important;
+}
+
+/* ===== Notificações (toast) ===== */
+#toast-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-width: min(360px, calc(100vw - 40px));
+    pointer-events: none;
+}
+
+.toast {
+    pointer-events: auto;
+    padding: 14px 18px;
+    border-radius: 12px;
+    color: #fff;
+    font-weight: 600;
+    font-size: 14px;
+    line-height: 1.35;
+    box-shadow: 0 12px 30px rgba(23, 50, 77, 0.22);
+    opacity: 0;
+    transform: translateX(24px);
+    transition: opacity 0.28s ease, transform 0.28s ease;
+    border-left: 5px solid rgba(255, 255, 255, 0.65);
+}
+
+.toast.visivel {
+    opacity: 1;
+    transform: translateX(0);
+}
+
+.toast.sucesso {
+    background: linear-gradient(135deg, #2a9d8f, #1b7f72);
+}
+
+.toast.erro {
+    background: linear-gradient(135deg, #e76f51, #c94c35);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .toast {
+        transition: opacity 0.2s ease;
+        transform: none;
+    }
+    .toast.visivel {
+        transform: none;
+    }
+}
+
+/* ===== Filtro de status na tela de Pedidos ===== */
+.filtro-pedidos {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: 4px 0 16px;
+}
+
+.filtro-rotulo {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ld-primary);
+    margin-right: 4px;
+}
+
+.filtro-btn {
+    padding: 6px 14px !important;
+    font-size: 13px;
+    border-radius: 999px !important;
+    border: 1px solid var(--ld-border) !important;
+    background: var(--ld-surface) !important;
+    color: var(--ld-text) !important;
+    box-shadow: none !important;
+    cursor: pointer;
+    width: auto;
+}
+
+.filtro-btn:hover {
+    border-color: var(--ld-primary-2) !important;
+    filter: none;
+    transform: none !important;
+}
+
+.filtro-btn.ativo {
+    background: linear-gradient(135deg, var(--ld-primary-2), var(--ld-primary)) !important;
+    color: #fff !important;
+    border-color: transparent !important;
+}
+
+/* ===== Etiqueta de status (indicador visual) ===== */
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    border: 1px solid transparent;
+    vertical-align: middle;
+}
+
+.status-badge .status-icone {
+    font-size: 12px;
+    line-height: 1;
+}
+
+.badge-pendente {
+    background: #fbf1de;
+    color: #9c6a0a;
+    border-color: #ecd8a6;
+}
+
+.badge-producao {
+    background: #e3f0fb;
+    color: #1f5f8b;
+    border-color: #bcdcf1;
+}
+
+.badge-concluido {
+    background: #e5f3e9;
+    color: #1f7a44;
+    border-color: #bfe0cb;
+}

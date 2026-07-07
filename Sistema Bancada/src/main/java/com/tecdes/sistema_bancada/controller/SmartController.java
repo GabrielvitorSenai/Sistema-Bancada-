@@ -394,6 +394,28 @@ public class SmartController {
         return ResponseEntity.ok(contagem);
     }
 
+    /**
+     * Retorna apenas as posições de estoque ocupadas (cor != 0), como pedido no
+     * enunciado (GET /api/estoque/disponivel). Cada item traz a posição física e
+     * a cor do bloco armazenado, ordenados pela posição.
+     */
+    @GetMapping("/api/estoque/disponivel")
+    public ResponseEntity<List<Map<String, Integer>>> estoqueDisponivel() {
+        List<Map<String, Integer>> ocupadas = new java.util.ArrayList<>();
+
+        estoqueRepository.findAll().stream()
+                .filter(e -> e.getCor() != 0)
+                .sorted(java.util.Comparator.comparingInt(Estoque::getPosicaoEstoque))
+                .forEach(e -> {
+                    Map<String, Integer> item = new java.util.LinkedHashMap<>();
+                    item.put("posicao", e.getPosicaoEstoque());
+                    item.put("cor", e.getCor());
+                    ocupadas.add(item);
+                });
+
+        return ResponseEntity.ok(ocupadas);
+    }
+
     @PostMapping("/estoque/salvar")
     public ResponseEntity<String> salvarEstoque(@RequestBody Map<String, Integer> dados) {
         try {
