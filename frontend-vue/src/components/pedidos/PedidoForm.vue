@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { reactive, watch } from 'vue'
 import type { PedidoDTO, TipoPedido } from '@/types/pedido'
+import { imagemBloco, imagemTampa, imagemLamina, imagemPadrao } from '@/utils/assets'
 
 const emit = defineEmits<{ salvar: [pedido: PedidoDTO] }>()
 
@@ -77,10 +78,25 @@ function salvar() {
       </label>
     </div>
 
+    <div class="preview-geral card">
+      <div>
+        <span>Prévia da tampa</span>
+        <strong>{{ form.tampa === 1 ? 'Preto' : form.tampa === 2 ? 'Vermelho' : 'Azul' }}</strong>
+      </div>
+      <img :src="imagemTampa(form.tampa)" alt="Prévia da tampa" />
+    </div>
+
     <div class="blocos">
       <article v-for="bloco in form.blocos" :key="bloco.andar" class="bloco card">
         <div class="bloco-topo">
-          <h3>Bloco / Andar {{ bloco.andar }}</h3>
+          <div class="bloco-identificacao">
+            <img :src="imagemBloco(bloco.corBloco)" :alt="`Bloco andar ${bloco.andar}`" />
+            <div>
+              <h3>Bloco / Andar {{ bloco.andar }}</h3>
+              <p>Visualização do bloco e das lâminas selecionadas.</p>
+            </div>
+          </div>
+
           <label class="field pequeno">
             Cor do bloco
             <select v-model.number="bloco.corBloco" class="form-control">
@@ -93,6 +109,11 @@ function salvar() {
 
         <div class="laminas">
           <div v-for="(lamina, index) in bloco.laminas" :key="index" class="lamina">
+            <div class="lamina-preview">
+              <img :src="imagemLamina(index + 1, lamina.cor)" :alt="`Lâmina ${index + 1}`" />
+              <img :src="imagemPadrao(lamina.padrao, 1)" :alt="`Padrão ${lamina.padrao}`" />
+            </div>
+
             <strong>Lâmina {{ index + 1 }}</strong>
             <label class="field">
               Cor
@@ -133,6 +154,29 @@ function salvar() {
   padding: 20px;
 }
 
+.preview-geral {
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.preview-geral span {
+  display: block;
+  color: var(--color-muted);
+  font-weight: 800;
+}
+
+.preview-geral strong {
+  font-size: 20px;
+}
+
+.preview-geral img {
+  max-height: 90px;
+  object-fit: contain;
+}
+
 .blocos {
   display: grid;
   gap: 16px;
@@ -150,8 +194,28 @@ function salvar() {
   margin-bottom: 16px;
 }
 
+.bloco-identificacao {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.bloco-identificacao img {
+  width: 86px;
+  height: 86px;
+  object-fit: contain;
+  border-radius: 14px;
+  background: #f8fafc;
+  border: 1px solid var(--color-border);
+}
+
 h3 {
   margin: 0;
+}
+
+p {
+  margin: 4px 0 0;
+  color: var(--color-muted);
 }
 
 .pequeno {
@@ -173,6 +237,24 @@ h3 {
   gap: 10px;
 }
 
+.lamina-preview {
+  height: 86px;
+  border-radius: 12px;
+  background: white;
+  border: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.lamina-preview img {
+  max-width: 45%;
+  max-height: 72px;
+  object-fit: contain;
+}
+
 @media (max-width: 1000px) {
   .form-grid,
   .laminas {
@@ -186,8 +268,10 @@ h3 {
     grid-template-columns: 1fr;
   }
 
-  .bloco-topo {
+  .bloco-topo,
+  .preview-geral {
     flex-direction: column;
+    align-items: flex-start;
   }
 }
 </style>
