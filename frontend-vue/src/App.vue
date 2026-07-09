@@ -3,11 +3,18 @@ import { RouterLink, RouterView } from 'vue-router'
 </script>
 
 <template>
-  <div class="app">
+  <div class="app-shell">
     <aside class="sidebar">
-      <h1>Sistema Bancada</h1>
+      <div class="brand">
+        <div class="brand-icon">S4</div>
 
-      <nav>
+        <div>
+          <h1>Sistema Bancada</h1>
+          <span>Smart 4.0</span>
+        </div>
+      </div>
+
+      <nav class="menu">
         <RouterLink to="/">Dashboard</RouterLink>
         <RouterLink to="/loja">Loja</RouterLink>
         <RouterLink to="/pedidos">Pedidos</RouterLink>
@@ -22,45 +29,80 @@ import { RouterLink, RouterView } from 'vue-router'
 </template>
 
 <style scoped>
-.app {
+.app-shell {
   display: flex;
   min-height: 100vh;
-  background: #f4f6f8;
-  color: #1f2937;
 }
 
 .sidebar {
-  width: 240px;
-  background: #111827;
+  width: 280px;
+  background:
+    linear-gradient(180deg, rgba(37, 99, 235, 0.18), transparent 35%),
+    #0f172a;
   color: white;
-  padding: 24px;
+  padding: 28px 24px;
+  position: sticky;
+  top: 0;
+  height: 100vh;
 }
 
-.sidebar h1 {
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 38px;
+}
+
+.brand-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #2563eb, #22c55e);
+  display: grid;
+  place-items: center;
+  font-weight: 900;
+  box-shadow: 0 12px 24px rgba(37, 99, 235, 0.35);
+}
+
+.brand h1 {
+  margin: 0;
   font-size: 20px;
-  margin-bottom: 32px;
+  line-height: 1.1;
 }
 
-.sidebar nav {
+.brand span {
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+.menu {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
-.sidebar a {
-  color: #d1d5db;
+.menu a {
+  color: #cbd5e1;
   text-decoration: none;
-  padding: 10px 12px;
-  border-radius: 8px;
+  padding: 13px 14px;
+  border-radius: 12px;
+  font-weight: 700;
 }
 
-.sidebar a.router-link-active {
-  background: #2563eb;
+.menu a:hover {
+  background: rgba(255, 255, 255, 0.08);
   color: white;
+}
+
+.menu a.router-link-active {
+  background: var(--primary);
+  color: white;
+  box-shadow: 0 12px 24px rgba(37, 99, 235, 0.30);
 }
 
 .content {
   flex: 1;
-  padding: 32px;
+  padding: 34px;
+  overflow-x: hidden;
 }
 </style>
