@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import BancadaCard from '@/components/dashboard/BancadaCard.vue'
 import { useBancadaStore } from '@/stores/bancada.store'
+import { imagemEstacao } from '@/utils/assets'
 
 const bancadaStore = useBancadaStore()
 
 const estacoes = [
-  ['Estoque', 'Magazine de Estoque', '/assets/bancada/Smart40-Est_pause.png'],
-  ['Processo', 'Estação de Processo', '/assets/bancada/Smart40-Pro_pause.png'],
-  ['Montagem', 'Estação de Montagem', '/assets/bancada/Smart40-Mon_pause.png'],
-  ['Expedição', 'Magazine de Expedição', '/assets/bancada/Smart40-Exp_pause.png'],
+  ['Estoque', 'Magazine de Estoque', 'Est'],
+  ['Processo', 'Estação de Processo', 'Pro'],
+  ['Montagem', 'Estação de Montagem', 'Mon'],
+  ['Expedição', 'Magazine de Expedição', 'Exp'],
 ] as const
 </script>
 
@@ -38,7 +39,7 @@ const estacoes = [
         :key="estacao[0]"
         :titulo="estacao[0]"
         :subtitulo="estacao[1]"
-        :imagem="estacao[2]"
+        :imagem="imagemEstacao(estacao[2], bancadaStore.status)"
         :status="bancadaStore.status"
       />
     </div>
