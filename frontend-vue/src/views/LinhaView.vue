@@ -1,15 +1,16 @@
 <script setup lang="ts">
-import BancadaCard from '@/components/dashboard/BancadaCard.vue'
+import LinhaBancada from '@/components/dashboard/LinhaBancada.vue'
+import EstacaoFluxoCard from '@/components/dashboard/EstacaoFluxoCard.vue'
 import { useBancadaStore } from '@/stores/bancada.store'
-import { imagemEstacao } from '@/utils/assets'
+import { imagemFluxoEstacao } from '@/utils/assets'
 
 const bancadaStore = useBancadaStore()
 
 const estacoes = [
-  ['Estoque', 'Magazine de Estoque', 'Est'],
-  ['Processo', 'Estação de Processo', 'Pro'],
-  ['Montagem', 'Estação de Montagem', 'Mon'],
-  ['Expedição', 'Magazine de Expedição', 'Exp'],
+  ['Estoque', 'Magazine de Estoque', 'Estoque'],
+  ['Processo', 'Estação de Processo', 'Processo'],
+  ['Montagem', 'Estação de Montagem', 'Montagem'],
+  ['Expedição', 'Magazine de Expedição', 'Expedicao'],
 ] as const
 </script>
 
@@ -33,14 +34,20 @@ const estacoes = [
 
     <p v-if="bancadaStore.erro" class="alert error">{{ bancadaStore.erro }}</p>
 
+    <LinhaBancada :status="bancadaStore.status" />
+
+    <div class="section-title">
+      <h3>Estações individuais</h3>
+      <p>Essas imagens usam os assets de fluxo da bancada, não os overlays de status.</p>
+    </div>
+
     <div class="grid-linha">
-      <BancadaCard
+      <EstacaoFluxoCard
         v-for="estacao in estacoes"
         :key="estacao[0]"
         :titulo="estacao[0]"
         :subtitulo="estacao[1]"
-        :imagem="imagemEstacao(estacao[2], bancadaStore.status)"
-        :status="bancadaStore.status"
+        :imagem="imagemFluxoEstacao(estacao[2], 0)"
       />
     </div>
   </section>
@@ -58,6 +65,20 @@ const estacoes = [
 
 .controle .field {
   min-width: 240px;
+}
+
+.section-title {
+  margin: 30px 0 18px;
+}
+
+.section-title h3 {
+  margin: 0;
+  font-size: 24px;
+}
+
+.section-title p {
+  margin: 4px 0 0;
+  color: var(--color-muted);
 }
 
 .grid-linha {
