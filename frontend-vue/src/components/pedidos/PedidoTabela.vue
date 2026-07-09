@@ -36,37 +36,39 @@ const emit = defineEmits<{
         <tr v-else-if="pedidos.length === 0">
           <td colspan="7">Nenhum pedido encontrado.</td>
         </tr>
-        <tr v-for="pedido in pedidos" v-else :key="pedido.id">
-          <td>#{{ pedido.id }}</td>
-          <td>{{ pedido.numeroPedido || '-' }}</td>
-          <td>{{ pedido.tipo }}</td>
-          <td>{{ nomeTampa(pedido.tampa) }}</td>
-          <td><PedidoStatusBadge :status="pedido.statusOrderProduction" /></td>
-          <td>{{ pedido.blocos?.length || 0 }}</td>
-          <td class="acoes">
-            <button
-              class="btn success"
-              :disabled="pedido.statusOrderProduction !== 'pendente'"
-              @click="emit('executar', pedido)"
-            >
-              Executar
-            </button>
-            <button
-              class="btn secondary"
-              :disabled="pedido.statusOrderProduction !== 'pendente'"
-              @click="emit('editar', pedido)"
-            >
-              Editar
-            </button>
-            <button
-              class="btn danger"
-              :disabled="pedido.statusOrderProduction !== 'pendente'"
-              @click="emit('excluir', pedido)"
-            >
-              Excluir
-            </button>
-          </td>
-        </tr>
+        <template v-else>
+          <tr v-for="pedido in pedidos" :key="pedido.id">
+            <td>#{{ pedido.id }}</td>
+            <td>{{ pedido.numeroPedido || '-' }}</td>
+            <td>{{ pedido.tipo }}</td>
+            <td>{{ nomeTampa(pedido.tampa) }}</td>
+            <td><PedidoStatusBadge :status="pedido.statusOrderProduction" /></td>
+            <td>{{ pedido.blocos?.length || 0 }}</td>
+            <td class="acoes">
+              <button
+                class="btn success"
+                :disabled="pedido.statusOrderProduction !== 'pendente'"
+                @click="emit('executar', pedido)"
+              >
+                Executar
+              </button>
+              <button
+                class="btn secondary"
+                :disabled="pedido.statusOrderProduction !== 'pendente'"
+                @click="emit('editar', pedido)"
+              >
+                Editar
+              </button>
+              <button
+                class="btn danger"
+                :disabled="pedido.statusOrderProduction !== 'pendente'"
+                @click="emit('excluir', pedido)"
+              >
+                Excluir
+              </button>
+            </td>
+          </tr>
+        </template>
       </tbody>
     </table>
   </div>
