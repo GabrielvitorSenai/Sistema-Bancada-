@@ -71,6 +71,17 @@
 				</exclusion>
 			</exclusions>
 		</dependency>
+
+		<!--
+			Documentação interativa da API (Swagger UI / OpenAPI 3).
+			Expõe automaticamente /swagger-ui.html e /v3/api-docs a partir dos
+			controllers, atendendo à entrega da Etapa 4 (Documentação da API).
+		-->
+		<dependency>
+			<groupId>org.springdoc</groupId>
+			<artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+			<version>2.8.9</version>
+		</dependency>
 		<!-- Conversão e tratamento de mensagens estruturadas -->
 	</dependencies>
 

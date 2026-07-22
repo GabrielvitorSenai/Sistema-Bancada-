@@ -1,0 +1,186 @@
+{
+  "info": {
+    "name": "Sistema Bancada SMART 4.0",
+    "description": "Coleção de testes de API da planta SMART 4.0 (painel da linha didática 4.0).\n\nUse a variável de coleção `baseUrl` (padrão http://localhost:8088). O fluxo sugerido:\n1. Configure o estoque (POST Estoque - salvar).\n2. Crie um pedido (POST Pedido - criar); o id retornado é salvo automaticamente na variável `pedidoId`.\n3. Coloque em produção e conclua (PUT Pedido - atualizar status).\n4. Confira a listagem e a expedição.\n\nCasos de erro (estoque insuficiente, tampa inválida, 4 lâminas) também estão incluídos para validar as Regras de Ouro.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8088" },
+    { "key": "pedidoId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Estoque - salvar (magazine)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": { "raw": "{{baseUrl}}/estoque/salvar", "host": ["{{baseUrl}}"], "path": ["estoque", "salvar"] },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"posicao:1\": 3,\n  \"posicao:2\": 3,\n  \"posicao:3\": 1,\n  \"posicao:4\": 2\n}"
+        },
+        "description": "Grava as cores dos blocos nas posições do magazine de estoque (1=preto, 2=vermelho, 3=azul, 0=vazio)."
+      }
+    },
+    {
+      "name": "Estoque - disponibilidade por cor",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "{{baseUrl}}/estoque/disponibilidade", "host": ["{{baseUrl}}"], "path": ["estoque", "disponibilidade"] },
+        "description": "Retorna quantos blocos de cada cor existem no estoque."
+      }
+    },
+    {
+      "name": "Estoque - posições ocupadas",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "{{baseUrl}}/api/estoque/disponivel", "host": ["{{baseUrl}}"], "path": ["api", "estoque", "disponivel"] }
+      }
+    },
+    {
+      "name": "Pedido - criar (duplo)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status 201', function () { pm.response.to.have.status(201); });",
+              "var json = pm.response.json();",
+              "if (json && json.id) { pm.collectionVariables.set('pedidoId', json.id); }",
+              "pm.test('tem 2 blocos', function () { pm.expect(json.blocos.length).to.eql(2); });"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": { "raw": "{{baseUrl}}/api/pedidos", "host": ["{{baseUrl}}"], "path": ["api", "pedidos"] },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"numeroPedido\": \"1001\",\n  \"tipo\": \"duplo\",\n  \"tampa\": 1,\n  \"statusOrderProduction\": \"pendente\",\n  \"blocos\": [\n    { \"andar\": 1, \"corBloco\": 3, \"laminas\": [ { \"cor\": 1, \"padrao\": 1 } ] },\n    { \"andar\": 2, \"corBloco\": 3, \"laminas\": [ { \"cor\": 2, \"padrao\": 2 } ] }\n  ]\n}"
+        },
+        "description": "Cria um pedido duplo (2 blocos). Valida tipo x quantidade de blocos, cor da tampa (1-3), lâminas (máx. 3) e disponibilidade de estoque."
+      }
+    },
+    {
+      "name": "Pedido - listar todos",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "{{baseUrl}}/api/pedidos", "host": ["{{baseUrl}}"], "path": ["api", "pedidos"] }
+      }
+    },
+    {
+      "name": "Pedido - buscar por id",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "{{baseUrl}}/listar-pedido/{{pedidoId}}", "host": ["{{baseUrl}}"], "path": ["listar-pedido", "{{pedidoId}}"] }
+      }
+    },
+    {
+      "name": "Pedido - atualizar status (produção)",
+      "request": {
+        "method": "PUT",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": { "raw": "{{baseUrl}}/api/pedidos/{{pedidoId}}/status", "host": ["{{baseUrl}}"], "path": ["api", "pedidos", "{{pedidoId}}", "status"] },
+        "body": { "mode": "raw", "raw": "{\n  \"statusOrderProduction\": \"producao\"\n}" },
+        "description": "Coloca o pedido em produção. Aceita texto (pendente/producao/concluido) ou código (1/2/3)."
+      }
+    },
+    {
+      "name": "Pedido - atualizar status (concluído)",
+      "request": {
+        "method": "PUT",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": { "raw": "{{baseUrl}}/api/pedidos/{{pedidoId}}/status", "host": ["{{baseUrl}}"], "path": ["api", "pedidos", "{{pedidoId}}", "status"] },
+        "body": { "mode": "raw", "raw": "{\n  \"statusOrderProduction\": \"3\"\n}" }
+      }
+    },
+    {
+      "name": "Pedido - excluir",
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": { "raw": "{{baseUrl}}/api/pedidos/{{pedidoId}}", "host": ["{{baseUrl}}"], "path": ["api", "pedidos", "{{pedidoId}}"] },
+        "description": "Exclui um pedido ainda pendente. Pedidos em produção/concluídos não podem ser excluídos (409)."
+      }
+    },
+    {
+      "name": "Expedição - pedidos guardados",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "{{baseUrl}}/pedidos-expedicao", "host": ["{{baseUrl}}"], "path": ["pedidos-expedicao"] }
+      }
+    },
+    {
+      "name": "[ERRO] Pedido - estoque insuficiente (422)",
+      "event": [
+        {
+          "listen": "test",
+          "script": { "type": "text/javascript", "exec": [
+            "pm.test('status 422', function () { pm.response.to.have.status(422); });",
+            "pm.test('mensagem de estoque', function () { pm.expect(pm.response.text()).to.include('Estoque insuficiente'); });"
+          ] }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": { "raw": "{{baseUrl}}/api/pedidos", "host": ["{{baseUrl}}"], "path": ["api", "pedidos"] },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"tipo\": \"triplo\",\n  \"tampa\": 1,\n  \"blocos\": [\n    { \"andar\": 1, \"corBloco\": 3, \"laminas\": [] },\n    { \"andar\": 2, \"corBloco\": 3, \"laminas\": [] },\n    { \"andar\": 3, \"corBloco\": 3, \"laminas\": [] }\n  ]\n}"
+        },
+        "description": "Pedido triplo pedindo 3 blocos azuis. Com estoque insuficiente, o sistema deve recusar (422)."
+      }
+    },
+    {
+      "name": "[ERRO] Pedido - tampa inválida (422)",
+      "event": [
+        {
+          "listen": "test",
+          "script": { "type": "text/javascript", "exec": [
+            "pm.test('status 422', function () { pm.response.to.have.status(422); });"
+          ] }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": { "raw": "{{baseUrl}}/api/pedidos", "host": ["{{baseUrl}}"], "path": ["api", "pedidos"] },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"tipo\": \"simples\",\n  \"tampa\": 9,\n  \"blocos\": [ { \"andar\": 1, \"corBloco\": 1, \"laminas\": [] } ]\n}"
+        }
+      }
+    },
+    {
+      "name": "[ERRO] Pedido - 4 lâminas (422)",
+      "event": [
+        {
+          "listen": "test",
+          "script": { "type": "text/javascript", "exec": [
+            "pm.test('status 422', function () { pm.response.to.have.status(422); });",
+            "pm.test('mensagem de lâminas', function () { pm.expect(pm.response.text()).to.include('lâmina'); });"
+          ] }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": { "raw": "{{baseUrl}}/api/pedidos", "host": ["{{baseUrl}}"], "path": ["api", "pedidos"] },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"tipo\": \"simples\",\n  \"tampa\": 1,\n  \"blocos\": [ { \"andar\": 1, \"corBloco\": 1, \"laminas\": [ {\"cor\":1,\"padrao\":0}, {\"cor\":2,\"padrao\":0}, {\"cor\":3,\"padrao\":0}, {\"cor\":4,\"padrao\":0} ] } ]\n}"
+        },
+        "description": "Bloco com 4 lâminas. O sistema deve recusar por exceder o limite de 3 (422)."
+      }
+    }
+  ]
+}

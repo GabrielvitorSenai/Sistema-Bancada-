@@ -18,6 +18,11 @@ import com.tecdes.sistema_bancada.dto.PedidoDTO;
 import com.tecdes.sistema_bancada.model.Pedido;
 import com.tecdes.sistema_bancada.service.PedidoService;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
+
 /**
  * Endpoints de gestão de pedidos da Loja.
  *
@@ -28,6 +33,7 @@ import com.tecdes.sistema_bancada.service.PedidoService;
  * Aprendizagem (/api/pedidos, /api/pedidos/{id}/status).
  */
 @Controller
+@Tag(name = "Pedidos", description = "Criação, consulta, edição e mudança de status dos pedidos da Loja.")
 public class LojaController {
 
     @Autowired
@@ -47,6 +53,14 @@ public class LojaController {
     }
 
     /** Caminho RESTful pedido no enunciado. Retorna 201 com o pedido criado. */
+    @Operation(summary = "Cria um novo pedido",
+            description = "Valida as Regras de Ouro (tipo x quantidade de blocos, cor da tampa 1-3, "
+                    + "no máximo 3 lâminas por bloco e disponibilidade de estoque) antes de gravar.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "201", description = "Pedido criado com sucesso"),
+            @ApiResponse(responseCode = "409", description = "Número de pedido já cadastrado"),
+            @ApiResponse(responseCode = "422", description = "Violação de regra de negócio (ex.: estoque insuficiente, tampa inválida)")
+    })
     @PostMapping("/api/pedidos")
     @ResponseBody
     public ResponseEntity<Pedido> criarPedidoRest(@RequestBody PedidoDTO pedidoDTO) {
@@ -68,6 +82,8 @@ public class LojaController {
     }
 
     /** Caminho RESTful equivalente a /listar-pedidos. */
+    @Operation(summary = "Lista todos os pedidos",
+            description = "Retorna todos os pedidos cadastrados, com seus blocos e lâminas.")
     @GetMapping("/api/pedidos")
     @ResponseBody
     public List<Pedido> listarPedidosRest() {
@@ -131,6 +147,14 @@ public class LojaController {
     }
 
     /** Caminho RESTful pedido no enunciado (ID na URL). */
+    @Operation(summary = "Atualiza o status de produção do pedido",
+            description = "Aceita o texto (pendente/producao/concluido) ou o código numérico "
+                    + "(1 = pendente, 2 = produção, 3 = concluído). Reflete a mudança de etapa da linha.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Status atualizado"),
+            @ApiResponse(responseCode = "404", description = "Pedido não encontrado"),
+            @ApiResponse(responseCode = "422", description = "Status inválido")
+    })
     @PutMapping("/api/pedidos/{id}/status")
     @ResponseBody
     public ResponseEntity<String> atualizarStatusRest(@PathVariable Long id, @RequestBody PedidoDTO dto) {
