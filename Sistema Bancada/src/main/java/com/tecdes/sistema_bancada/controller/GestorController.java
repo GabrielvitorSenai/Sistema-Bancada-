@@ -14,7 +14,12 @@ import com.tecdes.sistema_bancada.model.Expedicao;
 import com.tecdes.sistema_bancada.repository.EstoqueRepository;
 import com.tecdes.sistema_bancada.repository.ExpedicaoRepository;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+
 @RestController
+@Tag(name = "Gestão - Estoque e Expedição",
+        description = "Leitura das posições do magazine de estoque e do magazine de expedição.")
 public class GestorController {
 
     @Autowired
@@ -23,6 +28,8 @@ public class GestorController {
     @Autowired
     private ExpedicaoRepository expedicaoRepository;
 
+    @Operation(summary = "Cores dos blocos no estoque",
+            description = "Retorna a cor de cada posição do magazine de estoque (P1..P28).")
     @GetMapping("/blocos-estoque")
     public Map<String, Integer> getValores() {
         List<Estoque> lista = estoqueRepository.findAll(Sort.by("posicaoEstoque")); // ordenado por posição
@@ -36,6 +43,8 @@ public class GestorController {
         return valores;
     }
     
+    @Operation(summary = "Pedidos guardados na expedição",
+            description = "Retorna o número de OP guardado em cada posição do magazine de expedição (P1..P12).")
     @GetMapping("/pedidos-expedicao")
     public Map<String, Integer> carregarValoresExpedicao() {
         List<Expedicao> lista = expedicaoRepository.findAll(Sort.by(Sort.Direction.ASC, "posicaoExpedicao"));

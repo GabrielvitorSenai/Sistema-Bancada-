@@ -32,7 +32,13 @@ import com.tecdes.sistema_bancada.service.PlcConnector;
 import com.tecdes.sistema_bancada.service.SmartService;
 import com.tecdes.sistema_bancada.service.SmartService.PlcConnectionManager;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+
 @RestController
+@Tag(name = "Bancada - Produção e Estoque",
+        description = "Início e finalização de pedidos na linha, disponibilidade de estoque e "
+                + "sincronização com os CLPs.")
 public class SmartController {
 
     private final Map<Long, Integer> posicoesExpedicaoPedidos = new ConcurrentHashMap<>();
@@ -397,6 +403,8 @@ public class SmartController {
         }
     }
 
+    @Operation(summary = "Disponibilidade de blocos por cor",
+            description = "Conta quantos blocos de cada cor (1=preto, 2=vermelho, 3=azul) existem no estoque.")
     @GetMapping("/estoque/disponibilidade")
     public ResponseEntity<Map<Integer, Integer>> disponibilidadeEstoque() {
         Map<Integer, Integer> contagem = new java.util.HashMap<>();
@@ -419,6 +427,8 @@ public class SmartController {
      * enunciado (GET /api/estoque/disponivel). Cada item traz a posição física e
      * a cor do bloco armazenado, ordenados pela posição.
      */
+    @Operation(summary = "Posições de estoque ocupadas",
+            description = "Lista as posições do magazine com bloco (cor != 0), com posição física e cor.")
     @GetMapping("/api/estoque/disponivel")
     public ResponseEntity<List<Map<String, Integer>>> estoqueDisponivel() {
         List<Map<String, Integer>> ocupadas = new java.util.ArrayList<>();
